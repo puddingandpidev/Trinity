@@ -28,6 +28,8 @@ namespace Trinity.Shared.Configurations
                 _host = Dns.GetHostEntry(Dns.GetHostName());
                 _ipV4 = String.Empty;
                 _ipV6 = String.Empty;
+                ResolveIpV4Address();
+                ResolveIpV6Address();
             }
             catch (SocketException ex)
             {

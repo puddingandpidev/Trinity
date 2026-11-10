@@ -1,32 +1,44 @@
-using Refit;
+using System.Net.Http.Json;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Services;
 
-public class OperatorService(IOperatorAPI api)
+public class OperatorService
 {
-    public async Task<List<Operator>> GetTasksAsync()
+    private readonly AuthorizedHttp _http;
+
+    public OperatorService(AuthorizedHttp http)
+        => _http = http;
+
+    /// <summary>
+    /// GET /api/v1/operators — returns all registered operators.
+    /// </summary>
+    // Response shape is OperatorSummary: the API no longer returns credential material.
+    public async Task<List<OperatorSummary>> GetAllAsync()
+        => await _http.GetFromJsonAsync<List<OperatorSummary>>("/api/v1/operators") ?? [];
+
+    /// <summary>
+    /// GET /api/v1/operators/{id} — returns a single operator.
+    /// </summary>
+    public async Task<OperatorSummary?> GetByIdAsync(int id)
+        => await _http.GetFromJsonAsync<OperatorSummary>($"/api/v1/operators/{id}");
+
+    /// <summary>
+    /// POST /api/v1/operators — creates a new operator account.
+    /// </summary>
+    public async Task<bool> CreateAsync(Operator op)
     {
-        try { return await api.GetOperatorsAsync() ?? []; }
-        catch (ApiException) { return []; }
+        var response = await _http.PostAsJsonAsync("/api/v1/operators", op);
+        return response.IsSuccessStatusCode;
     }
 
-    public async Task<Operator?> GetByIdAsync(int id)
-    {
-        try { return await api.GetByIdAsync(id); }
-        catch (ApiException) { return null; }
-    }
-
-    public async Task<bool> CreateAsync(string username, string password, string role = "operator")
-    {
-        try { await api.CreateAsync(new { Username = username, Password = password, Role = role }); return true; }
-        catch (ApiException) { return false; }
-    }
-
+    /// <summary>
+    /// DELETE /api/v1/operators/{id} — removes an operator.
+    /// </summary>
     public async Task<bool> DeleteAsync(int id)
     {
-        try { await api.DeleteAsync(id); return true; }
-        catch (ApiException) { return false; }
+        var response = await _http.DeleteAsync($"/api/v1/operators/{id}");
+        return response.IsSuccessStatusCode;
     }
 }

@@ -10,6 +10,9 @@
 *.userosscache
 *.sln.docstates
 *.json
+.env
+.env.*
+!.env.example
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -29,6 +32,8 @@ x86/
 [Aa][Rr][Mm]64/
 bld/
 [Bb]in/
+# Local helper scripts live in .pi/bin and are committed with the notes (see AGENTS.md)
+!.pi/bin/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
@@ -395,13 +400,24 @@ FodyWeavers.xsd
 *.local.sql
 *.local.md
 
-# Local CMake test/build output
-Agent/build-test/
+# Agent build artifacts
+Agent/out/
+Payloads/
 
-# CMake build output
-Agent/build/
-Agent/out/build/
-
-# Local payload build/test output
-Agent/build-payload-test/
-TeamServer/PayloadBuilds/
+# The legacy tree is a frozen reference: its build output stays out of git. Its sources are upstream's,
+# byte for byte, except the additions the cross build needs (cmake/toolchains, cmake/compat and the
+# CMakeLists block they are attached by) — see docs/legacy-agent-payload.md.
+#
+# Provenance, so a stale reference is detectable: Agent.Legacy/ is upstream/test:Agent at
+# 89b6440319a92e549a55cd45a6bb418360afd472 ("fix: broken interfaces in controller defintions"), the
+# pin also recorded in Agent.Legacy/UPSTREAM. include/mscorlib.h used to be ignored here because the
+# tree was never built; CMakePayloadBuilder now builds it, and the header is listed by CMakeLists.txt,
+# so it is tracked like upstream tracks it. Re-check the source half with
+#   git diff --diff-filter=AM --stat upstream/test:Agent HEAD:Agent.Legacy
+Agent.Legacy/build/
+Agent.Legacy/out/
+# …but the preset file that produced both is source, not output — the blanket `*.json` rule hid it.
+!Agent.Legacy/CMakePresets.json
+# runtime data: uploaded and agent-received files (mounted by docker-compose)
+/uploads/
+/storage/

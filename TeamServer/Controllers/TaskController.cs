@@ -1,10 +1,14 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
+using TeamServer.Services;
+using Trinity.Shared.DTOs.Task;
 
 
 namespace TeamServer.Controllers
 {
+    [Authorize]
     [Route(Routes.Tasks)]
     [ApiController]
     public class TaskController : ControllerBase
@@ -23,6 +27,7 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet("tasks")]
+        [ProducesResponseType(typeof(List<TaskResponse>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetTasks()
         {
             var result = await _taskService.GetAllAgentTasks();
@@ -38,6 +43,7 @@ namespace TeamServer.Controllers
         /// <returns>An IActionResult that returns 200 (OK) with the task details when found, or 404 (NotFound) when no task
         /// exists with the specified ID.</returns>
         [HttpGet("tasks/{ID}")]
+        [ProducesResponseType(typeof(GetTaskDetailsResponse), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetTaskDetailsByID([FromRoute] int ID)
         {
             var result = await _taskService.GetTaskDetailsByIDAsync(ID);
@@ -53,6 +59,7 @@ namespace TeamServer.Controllers
         /// <returns>An IActionResult that returns 200 (OK) with the queued tasks on success, or 400 (BadRequest) with error
         /// details on failure.</returns>
         [HttpGet("{agentID}")]
+        [ProducesResponseType(typeof(List<TaskResponse>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetTasksByAgentID([FromRoute] int agentID)
         {
             var result = await _taskService.GetQueuedTasksByAgentID(agentID);
@@ -66,6 +73,7 @@ namespace TeamServer.Controllers
         /// <param name="agentID"></param>
         /// <returns></returns>
         [HttpGet("{agentID}/activeDownloads")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> GetActiveDownloadsByAgentID([FromRoute] int agentID)
         {
             return Ok();
@@ -79,7 +87,8 @@ namespace TeamServer.Controllers
         /// the task.</remarks>
         /// <param name="taskID">The identifier of the task to stop.</param>
         /// <returns>200 (OK) when the task was removed; 404 (NotFound) with an error if no task with the specified ID exists.</returns>
-        [HttpDelete("/{taskID}/stop")]
+        [HttpDelete("{taskID}/stop")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> StopTask([FromRoute] int taskID)
         {
             var result = await _taskService.RemoveTaskByIDAsync(taskID);
@@ -93,7 +102,8 @@ namespace TeamServer.Controllers
         /// <remarks>Accessible via HTTP DELETE at /{agentID}/clearQueue.</remarks>
         /// <param name="agentID">Identifier of the agent whose queued tasks to clear.</param>
         /// <returns>An IActionResult: 200 (OK) when the queue is cleared; 400 (Bad Request) with an error on failure.</returns>
-        [HttpDelete("/{agentID}/clearQueue")]
+        [HttpDelete("{agentID}/clearQueue")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> ClearQueue([FromRoute] int agentID)
         {
             var result = await _taskService.ClearAgentTasksAsync(agentID);

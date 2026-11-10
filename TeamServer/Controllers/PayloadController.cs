@@ -1,8 +1,10 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
+using TeamServer.Interface;
+using TeamServer.Services;
 using Trinity.Shared.DTOs.Payload;
-using Trinity.Shared.Interfaces;
 
 namespace TeamServer.Controllers
 {
@@ -10,6 +12,7 @@ namespace TeamServer.Controllers
     /// Controller responsible for handling payload-related operations, including generating new payloads, retrieving existing payloads, and fetching specific payload files based on their IDs.
     /// https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.mvc.controllerbase.physicalfile?view=aspnetcore-10.0
     /// </summary>
+    [Authorize]
     [Route(Routes.Payloads)]
     [ApiController]
     public class PayloadController : ControllerBase
@@ -24,6 +27,7 @@ namespace TeamServer.Controllers
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpPost("generate")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> GeneratePayloadAsync([FromBody] PayloadCreationDTO payloadCreationDTO)
         {
             var result = await _payloadService.GeneratePayloadAsync(payloadCreationDTO);
@@ -33,11 +37,12 @@ namespace TeamServer.Controllers
                 return BadRequest(result);
             }
 
-            return Ok();
+            return Ok(new { id = result.Response });
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpGet]
+        [ProducesResponseType(typeof(List<PayloadDTO>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetPayloadsAsync()
         {
             var result = await _payloadService.GetPayloadsAsync();
@@ -56,15 +61,6 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <param name="payloadID"></param>
         /// <returns>The file path of the payload, or an error result if the payload is not found.</returns>
-        [HttpDelete("{payloadID}")]
-        public async Task<IActionResult> DeletePayloadAsync(int payloadID)
-        {
-            var result = await _payloadService.DeletePayloadAsync(payloadID);
-            if (!result.IsSuccess)
-                return NotFound(result);
-            return Ok();
-        }
-
         [HttpGet("{payloadID}")]
         public async Task<IActionResult> GetPayloadAsync(int payloadID)
         {

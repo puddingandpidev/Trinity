@@ -6,11 +6,12 @@
 @using Client.Components.UI
 @using Client.Services
 @using Campaign = Trinity.Shared.Models.Campaign
-@using Operator = Trinity.Shared.Models.Operator
+@using OperatorSummary = Trinity.Shared.DTOs.Accounts.OperatorSummary
 @inject OperatorService OperatorService
 @inject AdminService AdminService
 @inject CampaignService CampaignService
 @inject IHttpClientFactory HttpFactory
+@inject AuthorizedHttp ServerHttp
 
 <PageTitle>Trinity · Operators</PageTitle>
 
@@ -80,25 +81,25 @@
         _loading = true;
         try
         {
-            var http = HttpFactory.CreateClient("TeamServer");
-            _campaigns = await CampaignService.GetTasksAsync();
+            var http = await ServerHttp.CreateAsync();
+            _campaigns = await CampaignService.GetAllAsync();
 
             var campaignsByOperator = new Dictionary<int, List<int>>();
             foreach (var campaign in _campaigns)
             {
-                var ops = await http.GetFromJsonAsync<List<Operator>>($"/api/v1/campaigns/{campaign.ID}/operators") ?? [];
+                var ops = await http.GetFromJsonAsync<List<OperatorSummary>>($"/api/v1/campaigns/{campaign.ID}/operators") ?? [];
                 foreach (var op in ops)
                 {
                     (campaignsByOperator.TryGetValue(op.ID, out var list) ? list : campaignsByOperator[op.ID] = []).Add(campaign.ID);
                 }
             }
 
-            var admins = await AdminService.GetTasksAsync();
-            var operators = await OperatorService.GetTasksAsync();
+            var admins = await AdminService.GetAllAsync();
+            var operators = await OperatorService.GetAllAsync();
             _rows =
             [
-                .. admins.Select(a => new OperatorRow(a.ID, a.Username, a.Password, true, [], a.LastLogin)),
-                .. operators.Select(o => new OperatorRow(o.ID, o.Username, o.Password, false,
+                .. admins.Select(a => new OperatorRow(a.ID, a.Username, "", true, [], a.LastLogin)),
+                .. operators.Select(o => new OperatorRow(o.ID, o.Username, "", false,
                     campaignsByOperator.TryGetValue(o.ID, out var ids) ? ids : [], o.LastLogin)),
             ];
 

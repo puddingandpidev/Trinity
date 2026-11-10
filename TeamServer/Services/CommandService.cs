@@ -1,5 +1,5 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
 using TeamServer.Repositories;
 using TeamServer.Services.Factories;
 using Trinity.Shared.DTOs.Command;
@@ -17,31 +17,26 @@ namespace TeamServer.Services
         private readonly TaskStatusRepository _statusRepo;
         private readonly AgentRepository _agentRepo;
         private readonly ToolRepository _toolRepo;
-        private readonly IWebHostEnvironment _env;
-        private readonly IDownloadService _downloadService;
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         /// <summary>
-        /// Default constructor.
+        /// Initializes a new instance of CommandService with the specified dependencies.
         /// </summary>
-        /// <param name="database"></param>
-        /// <param name="commandFactory"></param>
-        /// <param name="commandRepository"></param>
-        /// <param name="taskStatusRepository"></param>
-        /// <param name="agentRepository"></param>
-        /// <param name="toolRepository"></param>
-        public CommandService(
-            CommandFactory commandFactory, CommandRepository commandRepository,
-            TaskStatusRepository taskStatusRepository, AgentRepository agentRepository,
-            ToolRepository toolRepository, IWebHostEnvironment env, IDownloadService downloadService)
+        /// <remarks>Dependencies are required for command creation, persistence, and agent/task status
+        /// management.</remarks>
+        /// <param name="database">Provides database access and persistence operations.</param>
+        /// <param name="commandFactory">Factory for creating Command instances.</param>
+        /// <param name="commandRepository">Persists and retrieves Command entities.</param>
+        /// <param name="taskStatusRepository">Manages persistence and retrieval of task status information.</param>
+        /// <param name="agentRepository">Accesses and manages agent data.</param>
+        /// <param name="toolRepository">Resolves an assembly path to a registered Armoury tool.</param>
+        public CommandService(DatabaseService database, CommandFactory commandFactory, CommandRepository commandRepository, TaskStatusRepository taskStatusRepository, AgentRepository agentRepository, ToolRepository toolRepository)
         {
             _commandFactory = commandFactory;
             _commandRepo = commandRepository;
             _statusRepo = taskStatusRepository;
             _agentRepo = agentRepository;
             _toolRepo = toolRepository;
-            _env = env;
-            _downloadService = downloadService;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
@@ -54,101 +49,102 @@ namespace TeamServer.Services
         /// <param name="type">Type of command used to create the task.</param>
         /// <param name="agentID">Identifier of the agent that will own the queued task.</param>
         /// <returns>A Result indicating success, or an error result when the specified agent is not found.</returns>
-        public async Task<Result> QueueTaskAsync(int agentID, TaskType type, TaskCode code, ICommand command)
+        public async Task<Result<CommandCreationResponse>> QueueTaskAsync(int agentID, TaskType type, TaskCode code, ICommand command)
         {
             var agent = await _agentRepo.GetAgentByIDAsync(agentID);
             if (agent == null)
             {
                 return AgentError.NotFound(agentID);
+            }
+
+            // Refuse what the agent cannot run. The agent's dispatcher implements
+            // PowerShell, Shell, Escalate, Token, Keylogger, WinTask, NetAsm, GetUid, Kill,
+            // Upload, Download and Process{RunU, KillProcess}; anything else was accepted here,
+            // queued, and then sat in QUEUED forever because the implant answered
+            // "Unsupported task type" to a task the operator never sees resolved.
+            if (!AgentCapabilities.IsImplemented(type, code))
+            {
+                return CommandError.Unsupported(type, code);
+            }
+
+
+            // File transfer tasks carry the campaign identifier so the agent can build the
+            // /api/files/{campaignId}/{fileName} URL.
+            switch (command)
+            {
+                case UploadDTO upload when string.IsNullOrEmpty(upload.TransferID):
+                    upload.TransferID = agent.CampaignID.ToString();
+                    break;
+                case DownloadDTO download when string.IsNullOrEmpty(download.TransferID):
+                    download.TransferID = agent.CampaignID.ToString();
+                    break;
+                case DotNetAsmDTO assembly:
+                {
+                    // The agent executes an in-memory blob, so the path is resolved and encoded
+                    // server-side and never reaches the wire (the legacy QueueNetAsmTask did the
+                    // same). The path must name a registered Armoury tool, as upstream does
+                    // (89b6440 CommandService.cs:80-83) - a path the server can open is not the
+                    // same thing as a tool the operator uploaded.
+                    var tool = await _toolRepo.GetToolByPathAsync(assembly.AssemblyPath);
+                    if (tool is null)
+                    {
+                        return ToolError.NotFound(assembly.AssemblyPath);
+                    }
+                    if (!File.Exists(assembly.AssemblyPath))
+                    {
+                        return FileError.FileNotFound(assembly.AssemblyPath);
+                    }
+
+                    byte[] bytes = await File.ReadAllBytesAsync(assembly.AssemblyPath);
+                    command = new DotNetAsmRequest
+                    {
+                        Assembly = Convert.ToBase64String(bytes),
+                        Arguments = assembly.Arguments,
+                    };
+                    break;
+                }
             }
 
             var task = _commandFactory.Create(agentID, type, code, command);
             await _commandRepo.QueueAsync(task);
             await _commandRepo.CommitAsync();
-            return Result.Success();
+
+            return FormatCreationResponse(ref type, ref code, task.ID, ref command);
         }
 
-        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        public async Task<Result> QueueNetAsmTask(int agentID, TaskType type, TaskCode code, DotNetAsmDTO command)
+        private CommandCreationResponse FormatCreationResponse(ref TaskType type, ref TaskCode code, int taskID, ref ICommand command)
         {
-            var agent = await _agentRepo.GetAgentByIDAsync(agentID);
-            if (agent == null)
+            string message = type switch
             {
-                return AgentError.NotFound(agentID);
-            }
 
-            var tool = await _toolRepo.GetToolByPathAsync(command.AssemblyPath);
-            if (tool == null)
-            {
-                return ToolError.NotFound(command.AssemblyPath);
-            }
+                TaskType.POWERSHELL => $"Tasked agent to run: {((PowerShellDTO)command).Commandlet}",
+                TaskType.SHELL => $"Tasked agent to run: {((ShellDTO)command).Command}",
+                TaskType.TOKEN => $"Tasked agent to {((TokenDTO)command).Operation} token",
+                TaskType.ESCALATE => $"Tasked agent to escalate via {((EscalateDTO)command).RegKey}",
+                TaskType.PROCESS when code.Equals(TaskCode.SPAWN_TO) => $"Tasked agent to set spawn to: {((SpawnToDTO)command).Path}",
+                TaskType.PROCESS when code.Equals(TaskCode.KILL_PROCESS) => $"Tasked agent to kill process: {((KillProcessDTO)command).PID}",
+                TaskType.PROCESS when code.Equals(TaskCode.RUN_AS) => $"Tasked agent to run command as {((RunAsDTO)command).DomainUser}",
+                TaskType.PROCESS when code.Equals(TaskCode.RUN) => $"Tasked agent to run program: {((RunDTO)command).Program}",
+                TaskType.PROCESS when code.Equals(TaskCode.RUN_U) => $"Tasked agent to run command under process: {((RunUDTO)command).PID}",
+                TaskType.DOWNLOAD when code.Equals(TaskCode.DOWNLOAD) => $"Tasked agent to download {((DownloadDTO)command).Path}",
+                TaskType.DOWNLOAD when code.Equals(TaskCode.CANCEL_DOWNLOAD) => $"Tasked agent to cancel download with taskID: {((CancelDownloadDTO)command).TaskID}",
+                TaskType.UPLOAD => $"Tasked agent to upload file: {((UploadDTO)command).Path}",
+                TaskType.SET when code.Equals(TaskCode.UPDATE_HOSTS) => $"Tasked agent to update hosts: {((UpdateHostsDTO)command).Hosts}",
+                TaskType.SET when code.Equals(TaskCode.SLEEP) => $"Tasked agent to sleep for {((SetSleepDTO)command).Sleep}s",
+                TaskType.GET_UID => $"Tasked agent to get user ID",
+                TaskType.NET_ASM => $"Tasked agent to execute assembly ({(string.IsNullOrEmpty(((DotNetAsmRequest)command).Arguments) ? "no arguments" : ((DotNetAsmRequest)command).Arguments)})",
+                TaskType.OBJECT_FILE => $"Tasked agent to execute BOF: {((BofDTO)command).BofPath}",
+                TaskType.KEYLOGGER => $"Tasked agent to {((KeyloggerDTO)command).Operation} the keylogger",
+                TaskType.WIN_TASK => $"Tasked agent to persist via scheduled task: {((WinTaskDTO)command).TaskName}",
+                TaskType.KILL => $"Tasked agent to terminate",
 
-            var blob = await ConvertToBase64Blob(command.AssemblyPath);
-            var request = new DotNetAsmRequest { Arguments = command.Arguments, Assembly = blob };
+                // TaskType.NOP is a real enum member, so a switch without this arm threw
+                // SwitchExpressionException for it (and for any future value) instead of
+                // answering the caller.
+                _ => $"Tasked agent ({type})"
+            };
 
-            var task = _commandFactory.Create(agentID, type, code, request);
-            await _commandRepo.QueueAsync(task);
-            await _commandRepo.CommitAsync();
-            return Result.Success();
-        }
-
-        private async Task<string> ConvertToBase64Blob(string path)
-        {
-            using (FileStream fileStream = File.OpenRead(path))
-            {
-                byte[] fileBytes = new byte[fileStream.Length];
-                await fileStream.ReadAsync(fileBytes, 0, fileBytes.Length);
-                string base64blob = Convert.ToBase64String(fileBytes);
-                return base64blob;
-            }
-        }
-        /// <summary>
-        /// Queues a download task for the specified agent and command, creating the first chunk of the download.
-        /// </summary>
-        /// <param name="agentID"></param>
-        /// <param name="command"></param>
-        /// <returns></returns>
-        public async Task<Result> QueueDownloadTaskAsync(int agentID, DownloadDTO command)
-        {
-            var agent = await _agentRepo.GetAgentByIDAsync(agentID);
-
-            if (agent == null)
-            {
-                return AgentError.NotFound(agentID);
-            }
-
-            var firstChunkResult =
-                await _downloadService.DownloadChunkAsync(
-                    command.Path,
-                    command.DestinationPath,
-                    0);
-
-            if (!firstChunkResult.IsSuccess)
-            {
-                return firstChunkResult.Error;
-            }
-
-            var firstChunk = firstChunkResult.Response;
-
-            if (firstChunk == null)
-            {
-                return Error.Failure(
-                    "Download.FirstChunkMissing",
-                    "The first download chunk could not be created.");
-            }
-
-            var task = _commandFactory.Create(
-                agentID,
-                TaskType.DOWNLOAD,
-                firstChunk.Final
-                    ? TaskCode.DOWNLOAD_FINAL
-                    : TaskCode.DOWNLOAD_CHUNK,
-                firstChunk);
-
-            await _commandRepo.QueueAsync(task);
-            await _commandRepo.CommitAsync();
-
-            return Result.Success();
+            return new CommandCreationResponse(message, taskID);
         }
     }
 }

@@ -1,11 +1,12 @@
 @page "/settings"
 @layout TrinityLayout
+@using Client.Components.UI
 
 <PageTitle>Trinity · Settings</PageTitle>
 
 <div class="settings-page">
 
-    <div class="mock-banner" role="status">Settings shown here are UI-only and are not saved to TeamServer.</div>
+    <div class="error-banner" role="status">Settings shown here are UI-only and are not saved to TeamServer.</div>
 
     <section class="header">
         <h1>Settings</h1>
@@ -178,7 +179,7 @@
                 {
                     <p class="server-ip">TeamServer: <span class="mono">@_serverIpV4</span>@(string.IsNullOrEmpty(_serverIpV6) ? "" : $" · {_serverIpV6}")</p>
                 }
-                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Showing all C2 channels (mock)"))">View all channels →</a>
+                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Channels are the listeners listed above; there is no separate channel store."))">View all channels →</a>
             </section>
 
         </div>
@@ -186,9 +187,13 @@
         <div class="col-side">
 
             <section class="profiles-section t-card">
+                @if (_listenerError is not null)
+                {
+                    <div class="profile-error" role="status">@_listenerError</div>
+                }
                 <div class="panel-head">
                     <h2>C2 Profiles</h2>
-                    <button type="button" class="pill-btn" @onclick="@(() => ShowToast("Manage C2 profiles (mock)"))">
+                    <button type="button" class="pill-btn" @onclick="@(() => ShowToast("Listeners are managed with Create New C2 Profile below."))">
                         Manage Profiles
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
                     </button>
@@ -231,13 +236,13 @@
                         }
                     </tbody>
                 </table>
-                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Showing all C2 profiles (mock)"))">View all C2 profiles →</a>
+                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Every C2 profile is already listed above."))">View all C2 profiles →</a>
             </section>
 
             <section class="policies-section t-card">
                 <div class="panel-head">
                     <h2>AI Agent Behaviour Policies</h2>
-                    <button type="button" class="pill-btn" @onclick="@(() => ShowToast("Manage AI policies (mock)"))">
+                    <button type="button" class="pill-btn" @onclick="@(() => ShowToast("AI policies have no server-side model; these rows are illustrative."))">
                         Manage Policies
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
                     </button>
@@ -254,7 +259,7 @@
                         </li>
                     }
                 </ul>
-                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Showing all AI policies (mock)"))">View all policies →</a>
+                <a class="view-all-link" href="#" @onclick:preventDefault="true" @onclick="@(() => ShowToast("Every policy is already listed above."))">View all policies →</a>
             </section>
 
             <section class="status-section t-card">
@@ -294,15 +299,15 @@
 
 @if (_showCreateProfile)
 {
-    <div class="modal-overlay" @onclick="CloseCreateProfile">
-        <div class="modal-card" @onclick:stopPropagation="true">
-            <h3>Create New C2 Profile</h3>
+    <Modal Title="Create New C2 Profile" Subtitle="A listener the agents can check in to"
+           IconName="nav-listeners.svg" CloseOnBackdrop="false" FootNote="Profiles are created on the TeamServer."
+           OnClose="CloseCreateProfile">
+        <ChildContent>
+            <label class="modal-label" for="profile-name">Profile Name</label>
+            <input id="profile-name" class="modal-input" @bind="_profileName" placeholder="HTTPS Beacon" />
 
-            <label class="modal-label">Profile Name</label>
-            <input class="modal-input" @bind="_profileName" placeholder="HTTPS Beacon" />
-
-            <label class="modal-label">Protocol</label>
-            <select class="modal-input" @bind="_profileProtocol">
+            <label class="modal-label" for="profile-protocol">Protocol</label>
+            <select id="profile-protocol" class="modal-input" @bind="_profileProtocol">
                 <option>HTTP</option>
                 <option>TCP</option>
                 <option>SMB</option>
@@ -310,26 +315,26 @@
 
             @if (_profileProtocol == "SMB")
             {
-                <label class="modal-label">Pipe Name</label>
-                <input class="modal-input" @bind="_profilePipe" placeholder="trinity-pipe" />
+                <label class="modal-label" for="profile-pipe">Pipe Name</label>
+                <input id="profile-pipe" class="modal-input" @bind="_profilePipe" placeholder="trinity-pipe" />
             }
             else
             {
                 @if (_profileProtocol == "HTTP")
                 {
-                    <label class="modal-label">Local Address</label>
-                    <input class="modal-input" @bind="_profileHost" placeholder="0.0.0.0" />
+                    <label class="modal-label" for="profile-host">Local Address</label>
+                    <input id="profile-host" class="modal-input" @bind="_profileHost" placeholder="0.0.0.0" />
                 }
 
-                <label class="modal-label">Port</label>
-                <input class="modal-input" @bind="_profilePort" placeholder="8443" />
+                <label class="modal-label" for="profile-port">Port</label>
+                <input id="profile-port" class="modal-input" @bind="_profilePort" placeholder="8443" />
             }
-
-            <div class="modal-actions">
-                <button type="button" class="btn-primary" @onclick="CreateProfile">Confirm</button>
-            </div>
-        </div>
-    </div>
+        </ChildContent>
+        <Footer>
+            <button type="button" class="btn-ghost" @onclick="CloseCreateProfile">Cancel</button>
+            <button type="button" class="btn-primary" @onclick="CreateProfile">Confirm</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_toast is not null)

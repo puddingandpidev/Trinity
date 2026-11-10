@@ -51,6 +51,7 @@ public partial class Settings
     private ServerApiClient ServerApiClient { get; set; } = default!;
 
     private bool _liveListeners;
+    private string? _listenerError;
     private string? _serverIpV4;
     private string? _serverIpV6;
 
@@ -79,12 +80,23 @@ public partial class Settings
                     _profiles.Add(new Profile(listener.id, listener.name, listener.protocol, "Not provided", "Not provided", "Unknown", "gray"));
                 }
                 _liveListeners = true;
+                _listenerError = null;
+            }
+            else
+            {
+                _channels.Clear();
+                _profiles.Clear();
+                _liveListeners = true;
+                _listenerError = "The team server reports no listeners.";
             }
         }
-        catch
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException or System.Text.Json.JsonException or TaskCanceledException)
         {
-            // cant reach the server, keep the example tables
+            // An empty table is honest; example rows that look like real listeners are not.
+            _channels.Clear();
+            _profiles.Clear();
             _liveListeners = false;
+            _listenerError = ServerDown.Is(exception) ? ServerDown.Message : $"Could not load listeners: {exception.Message}";
         }
 
         try
@@ -200,19 +212,9 @@ public partial class Settings
         }
     }
 
-    private readonly List<Channel> _channels = new()
-    {
-        new("HTTPS Beacon", "TCP", "10.0.0.5", "443", 5),
-        new("WebDAV",       "TCP", "10.0.0.5", "80",  0),
-        new("Custom (RAW)", "TCP", "10.0.0.5", "9001", 0),
-    };
+    private readonly List<Channel> _channels = new();
 
-    private readonly List<Profile> _profiles = new()
-    {
-        new(0, "HTTPS Beacon", "HTTPS",  "10.0.0.5", "443",  "Active",   "green"),
-        new(0, "WebDAV",       "HTTP",   "10.0.0.5", "80",   "Standby",  "yellow"),
-        new(0, "Custom (RAW)", "Custom", "10.0.0.5", "9001", "Inactive", "red"),
-    };
+    private readonly List<Profile> _profiles = new();
 
     private readonly List<Policy> _policies = new()
     {
@@ -224,13 +226,13 @@ public partial class Settings
 
     private List<StatVm> BuildStats() => new()
     {
-        new("C2 Profiles", _liveListeners ? _profiles.Count.ToString() : "18", "Communication Profiles",
+        new("C2 Profiles", _liveListeners ? _profiles.Count.ToString() : "—", "Communication Profiles",
             "<path d='M5 12.55a11 11 0 0 1 14.08 0'/><path d='M1.42 9a16 16 0 0 1 21.16 0'/><path d='M8.53 16.11a6 6 0 0 1 6.95 0'/><line x1='12' y1='20' x2='12.01' y2='20'/>"),
-        new("AI Agent Policies", "8", "AI Behaviour Policies",
+        new("AI Agent Policies", "—", "AI Behaviour Policies",
             "<circle cx='12' cy='8' r='4'/><path d='M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1'/>"),
-        new("OPSEC Controls", "12", "Operational Security Rules",
+        new("OPSEC Controls", "—", "Operational Security Rules",
             "<path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/>"),
-        new("Evasion Techniques", "23", "Evasion Configurations",
+        new("Evasion Techniques", "—", "Evasion Configurations",
             "<path d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/><line x1='1' y1='1' x2='23' y2='23'/>"),
         new("System Health", $"{HealthPercent}%", HealthLabel,
             "<rect x='3' y='4' width='18' height='6' rx='1'/><rect x='3' y='14' width='18' height='6' rx='1'/><path d='M7 7h.01M7 17h.01'/>"),
@@ -263,35 +265,36 @@ public partial class Settings
             OpenCreateProfile),
         new ActionVm("Create AI Policy",
             "<circle cx='12' cy='8' r='4'/><path d='M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1'/>",
-            () => ShowToast("Opened new AI policy editor (mock)")),
+            () => ShowToast("Nothing to open: AI policies are not modelled on the server.")),
         new ActionVm("Export Config",
             "<path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='7 10 12 15 17 10'/><line x1='12' y1='15' x2='12' y2='3'/>",
-            () => ShowToast("Exported configuration to file (mock)")),
+            () => ShowToast("Not exported: the TeamServer has no configuration export. Use Generate Payload for a build.")),
         new ActionVm("Reset C2 Settings",
             "<circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/>",
-            () => ShowToast("C2 settings reset to defaults (mock)")),
+            () => ShowToast("Not reset: these settings exist only in this page, so there is nothing to reset.")),
         new ActionVm("Deploy Evasion Config",
             "<path d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/><line x1='1' y1='1' x2='23' y2='23'/>",
-            () => ShowToast("Evasion configuration deployed (mock)")),
+            () => ShowToast("Not deployed: evasion settings are payload build options, not runtime settings.")),
         new ActionVm("Test C2 Connection",
             "<path d='M5 12.55a11 11 0 0 1 14.08 0'/><path d='M1.42 9a16 16 0 0 1 21.16 0'/><path d='M8.53 16.11a6 6 0 0 1 6.95 0'/><line x1='12' y1='20' x2='12.01' y2='20'/>",
-            () => ShowToast("C2 connection test passed (mock)")),
+            () => ShowToast("No test run: the TeamServer has no C2 reachability endpoint for this page.")),
         new ActionVm("Import Config",
             "<path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='17 8 12 3 7 8'/><line x1='12' y1='3' x2='12' y2='15'/>",
-            () => ShowToast("Imported configuration from file (mock)")),
+            () => ShowToast("Not imported: there is no configuration import endpoint.")),
         new ActionVm("OPSEC Checklist",
             "<path d='M9 11l3 3L22 4'/><path d='M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11'/>",
-            () => ShowToast("Opened OPSEC checklist (mock)")),
+            () => ShowToast("No checklist: this build ships none.")),
     };
 
     private void SelectCategory(string c)
     {
         _category = c;
         if (c != "C2 Framework")
-            ShowToast($"\"{c}\" settings coming soon (mock)");
+            ShowToast($"\"{c}\" settings are not persisted: this page is display-only.");
     }
 
-    private void SaveChanges() => ShowToast("C2 Framework settings saved (mock)");
+    // The page is display-only: nothing is persisted, so it must not claim a save.
+    private void SaveChanges() => ShowToast("Nothing saved: these controls are display-only; listener settings are changed with Create New C2 Profile.");
 
     private async void ShowToast(string msg)
     {

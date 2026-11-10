@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TeamServer.Data;
-using Trinity.Shared.Enums;
 using Trinity.Shared.Enums.Tasks;
 
 #nullable disable
@@ -23,14 +22,9 @@ namespace TeamServer.Migrations
                 .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "arch", new[] { "x32", "x64", "x86" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "listenerType", new[] { "http", "https", "smb", "tcp", "tor" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payloadType", new[] { "powershell", "raw", "windows_dll", "windows_exe", "windows_service" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "rotationStrategy", new[] { "random", "round_robin" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "status", new[] { "completed", "dispatched", "download_chunk_status", "download_final_status", "error", "more_to_follow", "no_flag", "no_more_to_follow", "queued", "running", "success" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "taskCode", new[] { "download_chunk", "download_final", "kill_process", "no_code", "run", "run_as", "run_u", "sleep", "spawn_to", "start_keylogger", "stop_keylogger", "update_hosts" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "taskType", new[] { "download", "escalate", "get_uid", "intial_checkin", "keylogger", "kill", "net_asm", "nop", "object_file", "powershell", "process", "set", "shell", "upload", "win_task" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "toolType", new[] { "net_asm" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "status", new[] { "dispatched", "error", "more_to_follow", "no_flag", "no_more_to_follow", "queued", "running", "success" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "taskCode", new[] { "cancel_download", "download", "kill_process", "no_code", "run", "run_as", "run_u", "sleep", "spawn_to", "update_hosts" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "taskType", new[] { "download", "escalate", "get_uid", "intial_checkin", "keylogger", "kill", "net_asm", "nop", "object_file", "powershell", "process", "set", "shell", "token", "upload", "win_task" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Trinity.Shared.Models.Admin", b =>
@@ -64,6 +58,10 @@ namespace TeamServer.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ID"));
+
+                    b.Property<string>("AES256Key")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("Architecure")
                         .IsRequired()
@@ -253,10 +251,12 @@ namespace TeamServer.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<ListenerType>("Type")
-                        .HasColumnType("\"listenerType\"");
+                    b.Property<int>("ProtocolID")
+                        .HasColumnType("integer");
 
                     b.HasKey("ID");
+
+                    b.HasIndex("ProtocolID");
 
                     b.ToTable("Listeners");
                 });
@@ -297,8 +297,8 @@ namespace TeamServer.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Arch>("Arch")
-                        .HasColumnType("arch");
+                    b.Property<int>("Architecture")
+                        .HasColumnType("integer");
 
                     b.Property<int>("CampaignID")
                         .HasColumnType("integer");
@@ -313,28 +313,57 @@ namespace TeamServer.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("Jitter")
+                    b.Property<int>("ListenerID")
                         .HasColumnType("integer");
 
-                    b.Property<int>("ListenerID")
+                    b.Property<int>("PayloadType")
                         .HasColumnType("integer");
 
                     b.Property<string>("PayloadUUID")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<RotationStrategy>("RotationStrategy")
-                        .HasColumnType("\"rotationStrategy\"");
-
-                    b.Property<int>("Sleep")
-                        .HasColumnType("integer");
-
-                    b.Property<PayloadType>("Type")
-                        .HasColumnType("\"payloadType\"");
+                    b.Property<string>("RetryStrategy")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("ID");
 
                     b.ToTable("Payloads");
+                });
+
+            modelBuilder.Entity("Trinity.Shared.Models.Protocol", b =>
+                {
+                    b.Property<int>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ID"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("Protocols");
+
+                    b.HasData(
+                        new
+                        {
+                            ID = 1,
+                            Name = "HTTP"
+                        },
+                        new
+                        {
+                            ID = 2,
+                            Name = "SMB"
+                        },
+                        new
+                        {
+                            ID = 3,
+                            Name = "TCP"
+                        });
                 });
 
             modelBuilder.Entity("Trinity.Shared.Models.Task", b =>
@@ -364,7 +393,12 @@ namespace TeamServer.Migrations
                     b.Property<Status>("Status")
                         .HasColumnType("status");
 
+                    b.Property<int?>("TaskStatusID")
+                        .HasColumnType("integer");
+
                     b.HasKey("ID");
+
+                    b.HasIndex("TaskStatusID");
 
                     b.ToTable("Tasks");
                 });
@@ -392,6 +426,50 @@ namespace TeamServer.Migrations
                     b.ToTable("TaskResult");
                 });
 
+            modelBuilder.Entity("Trinity.Shared.Models.TaskStatus", b =>
+                {
+                    b.Property<int>("ID")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ID"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("ID");
+
+                    b.ToTable("TaskStatus");
+
+                    b.HasData(
+                        new
+                        {
+                            ID = 1,
+                            Name = "Queued"
+                        },
+                        new
+                        {
+                            ID = 2,
+                            Name = "Pending"
+                        },
+                        new
+                        {
+                            ID = 3,
+                            Name = "Running"
+                        },
+                        new
+                        {
+                            ID = 4,
+                            Name = "Successful"
+                        },
+                        new
+                        {
+                            ID = 5,
+                            Name = "Failure"
+                        });
+                });
+
             modelBuilder.Entity("Trinity.Shared.Models.Tool", b =>
                 {
                     b.Property<int>("ID")
@@ -403,8 +481,8 @@ namespace TeamServer.Migrations
                     b.Property<DateTime>("AddedDateTime")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Arch>("Arch")
-                        .HasColumnType("arch");
+                    b.Property<int>("Arch")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -420,8 +498,8 @@ namespace TeamServer.Migrations
                     b.Property<double>("Size")
                         .HasColumnType("double precision");
 
-                    b.Property<ToolType>("Type")
-                        .HasColumnType("\"toolType\"");
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
 
                     b.HasKey("ID");
 
@@ -466,6 +544,24 @@ namespace TeamServer.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Trinity.Shared.Models.Listener", b =>
+                {
+                    b.HasOne("Trinity.Shared.Models.Protocol", "Protocol")
+                        .WithMany("Listeners")
+                        .HasForeignKey("ProtocolID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Protocol");
+                });
+
+            modelBuilder.Entity("Trinity.Shared.Models.Task", b =>
+                {
+                    b.HasOne("Trinity.Shared.Models.TaskStatus", null)
+                        .WithMany("Tasks")
+                        .HasForeignKey("TaskStatusID");
+                });
+
             modelBuilder.Entity("Trinity.Shared.Models.TaskResult", b =>
                 {
                     b.HasOne("Trinity.Shared.Models.Task", null)
@@ -486,11 +582,21 @@ namespace TeamServer.Migrations
                     b.Navigation("Operator");
                 });
 
+            modelBuilder.Entity("Trinity.Shared.Models.Protocol", b =>
+                {
+                    b.Navigation("Listeners");
+                });
+
             modelBuilder.Entity("Trinity.Shared.Models.Task", b =>
                 {
                     b.Navigation("Error");
 
                     b.Navigation("Result");
+                });
+
+            modelBuilder.Entity("Trinity.Shared.Models.TaskStatus", b =>
+                {
+                    b.Navigation("Tasks");
                 });
 #pragma warning restore 612, 618
         }

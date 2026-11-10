@@ -1,32 +1,45 @@
-using Refit;
+using System.Net.Http.Json;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Services;
 
-public class AdminService(IAdminAPI api)
+public class AdminService
 {
-    public async Task<List<Admin>> GetTasksAsync()
-    {
-        try { return await api.GetAdminsAsync() ?? []; }
-        catch (ApiException) { return []; }
-    }
+    private readonly AuthorizedHttp _http;
 
-    public async Task<Admin?> GetByIdAsync(int id)
-    {
-        try { return await api.GetByIdAsync(id); }
-        catch (ApiException) { return null; }
-    }
+    public AdminService(AuthorizedHttp http)
+        => _http = http;
 
+    // <summary>
+    // GET /api/v1/admins — returns all admin accounts.
+    // </summary>
+    // Response shape is AdminSummary: the API no longer returns credential material.
+    public async Task<List<AdminSummary>> GetAllAsync()
+        => await _http.GetFromJsonAsync<List<AdminSummary>>("/api/v1/admins") ?? [];
+
+    // <summary>
+    // GET /api/v1/admins/{id} — returns a single admin.
+    // </summary>
+    public async Task<AdminSummary?> GetByIdAsync(int id)
+        => await _http.GetFromJsonAsync<AdminSummary>($"/api/v1/admins/{id}");
+
+    // <summary>
+    // POST /api/v1/admins — creates a new admin account.
+    // </summary>
     public async Task<bool> CreateAsync(Admin admin)
     {
-        try { await api.CreateAsync(admin); return true; }
-        catch (ApiException) { return false; }
+        var response = await _http.PostAsJsonAsync("/api/v1/admins", admin);
+        return response.IsSuccessStatusCode;
     }
 
+    // <summary>
+    // DELETE /api/v1/admins/{id} — removes an admin.
+    // </summary>
     public async Task<bool> DeleteAsync(int id)
     {
-        try { await api.DeleteAsync(id); return true; }
-        catch (ApiException) { return false; }
+        var response = await _http.DeleteAsync($"/api/v1/admins/{id}");
+        return response.IsSuccessStatusCode;
     }
 }
+

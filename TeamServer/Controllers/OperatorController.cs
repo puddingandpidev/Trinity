@@ -1,20 +1,21 @@
 //  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ { START OF FILE } ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ //
-using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
+using TeamServer.Services;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
 
 namespace TeamServer.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     [Route(Routes.Operators)]
     [ApiController]
     public class OperatorController : ControllerBase
     {
         private readonly IOperatorService _operatorService;
         private readonly IValidator<Operator> _operatorValidator;
-
         /// <summary>
         /// Initializes a new instance of the OperatorController class with the specified OperatorService.
         /// </summary>
@@ -30,6 +31,7 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet]
+        [ProducesResponseType(typeof(List<OperatorSummary>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetOperatorsAsync()
         {
             var result = await _operatorService.GetOperatorsAsync();
@@ -38,7 +40,7 @@ namespace TeamServer.Controllers
             {
                 return BadRequest(result.Error);
             }
-            return Ok(result.Response);
+            return Ok(result.Response.Select(o => new OperatorSummary(o.ID, o.Username, o.LastLogin)));
         }
         /// <summary>
         /// Gets an operator by its ID.
@@ -46,6 +48,7 @@ namespace TeamServer.Controllers
         /// <param name="operatorID"></param>
         /// <returns></returns>
         [HttpGet("{operatorID}")]
+        [ProducesResponseType(typeof(OperatorSummary), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetOperatorByIdAsync(int operatorID)
         {
             var result = await _operatorService.GetOperatorByIdAsync(operatorID);
@@ -53,7 +56,7 @@ namespace TeamServer.Controllers
             {
                 return NotFound(result.Error);
             }
-            return Ok(result.Response);
+            return Ok(new OperatorSummary(result.Response!.ID, result.Response.Username, result.Response.LastLogin));
         }
         /// <summary>
         /// Creates a new operator.
@@ -61,6 +64,7 @@ namespace TeamServer.Controllers
         /// <param name="newOperator"></param>
         /// <returns></returns>
         [HttpPost]
+        [ProducesResponseType(StatusCodes.Status201Created)]
         public async Task<IActionResult> CreateOperatorAsync([FromBody] Operator newOperator)
         {
             var validationResult = await _operatorValidator.ValidateAsync(newOperator);
@@ -85,6 +89,7 @@ namespace TeamServer.Controllers
         /// <param name="updatedOperator"></param>
         /// <returns></returns>
         [HttpPut("{operatorID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdateOperatorAsync(int operatorID, [FromBody] Operator updatedOperator)
         {
             if (operatorID != updatedOperator.ID)
@@ -111,6 +116,7 @@ namespace TeamServer.Controllers
         /// <param name="operatorID"></param>
         /// <returns></returns>
         [HttpDelete("{operatorID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> DeleteOperatorAsync(int operatorID)
         {
             var result = await _operatorService.DeleteOperatorAsync(operatorID);

@@ -1,4 +1,4 @@
-﻿{
+{
     "version": 3,
     "configurePresets": [
         {
@@ -59,6 +59,48 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "$env{VSINSTALLDIR}Common7/IDE/CommonExtensions/Microsoft/CMake/cmake/Microsoft/SegmentHeap.cmake"
+            }
+        },
+        {
+            "name": "mingw-x86_64",
+            "displayName": "MinGW x86_64 (Windows target)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-w64-x86_64.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "mingw-clang-x86_64",
+            "displayName": "MinGW Clang/LLD x86_64 (Windows target)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-w64-clang.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "mingw-x86_64-debug",
+            "displayName": "MinGW GCC x86_64 Debug (symbols, for guest debugging)",
+            "inherits": "mingw-x86_64",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "AGENT_TRACE": "ON",
+                "AGENT_SUPERVISOR": "ON"
+            }
+        },
+        {
+            "name": "mingw-clang-x86_64-debug",
+            "displayName": "MinGW Clang/LLD x86_64 Debug (symbols + PDB, for guest debugging)",
+            "inherits": "mingw-clang-x86_64",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "AGENT_TRACE": "ON",
+                "AGENT_SUPERVISOR": "ON"
             }
         }
     ]

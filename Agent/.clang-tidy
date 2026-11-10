@@ -1,0 +1,20 @@
+Checks: 'bugprone*, -bugprone-easily-swappable-parameters, -bugprone-command-processor,
+  clang-analyzer*,
+  cert*, -cert-dcl58-cpp,
+  cppcore*, -cppcoreguidelines-pro-bounds-pointer-arithmetic, -cppcoreguidelines-pro-type-reinterpret-cast, -cppcoreguidelines-pro-type-vararg, -cppcoreguidelines-macro-usage,
+    -cppcoreguidelines-non-private-member-variables-in-classes, -cppcoreguidelines-owning-memory, -cppcoreguidelines-avoid-magic-numbers, -cppcoreguidelines-avoid-non-const-global-variables,
+    -cppcoreguidelines-pro-type-static-cast-downcast, -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  misc*, -misc-non-private-member-variables-in-classes, -misc-include-cleaner,
+  performance*, -performance-no-int-to-ptr,
+  portability*, -portability-avoid-pragma-once,
+  readability*, -readability-uppercase-literal-suffix, -readability-identifier-length, -readability-magic-numbers, -readability-named-parameter, -readability-implicit-bool-conversion,
+  modernize*, -modernize-use-trailing-return-type, -modernize-avoid-c-arrays,
+  google*, -google-runtime-references, -google-readability-todo,
+  hicpp*, -hicpp-signed-bitwise, -hicpp-vararg, -hicpp-uppercase-literal-suffix,
+  llvm*, -llvm-header-guard, -llvmlibc*,
+    -llvm-prefer-static-over-anonymous-namespace,
+  -*-braces-around-statements'
+ExcludeHeaderFilterRegex: 'include/base64\.hpp|external/rapidjson/.*'
+CheckOptions:
+  - key: readability-identifier-length.IgnoredVariableNames
+    value: '(x|y)'

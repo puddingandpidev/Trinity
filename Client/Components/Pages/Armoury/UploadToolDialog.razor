@@ -1,0 +1,125 @@
+@using Client.Components.Shell
+@using Client.Components.UI
+@using Client.Services
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@inject AuthorizedHttp ServerHttp
+@inject OperatorService OperatorService
+@inject ProtectedSessionStorage Session
+@inject IJSRuntime JS
+
+@* Ported from upstream feat/armoury's UploadToolDialog, but rendered with our Modal so it inherits
+   focus-in, the tab trap, Escape and CloseOnBackdrop=false like the rest of the shell. *@
+<Modal Title="Upload Tool" Subtitle="Add a .NET assembly to the armoury" IconName="btn-plus.svg"
+       CloseOnBackdrop="false" FootNote="Stored on the team server for every operator."
+       Error="@_error" OnClose="OnClose">
+    <ChildContent>
+        <label class="modal-label" for="tool-file">File</label>
+        <div class="t-file-box" @onclick="TriggerBrowse">
+            <Icon Name="lucide-file.svg" Size="16" />
+            <span style="font-size:13px;">
+                @(_file is null ? $"Choose a file… (.exe or .dll, up to {MaxBytes / 1_048_576} MB)" : $"{_file.Name} · {FormatSize(_file.Size)}")
+            </span>
+        </div>
+        <InputFile id="tool-file-input" OnChange="OnFileChanged" accept=".exe,.dll" style="display:none;" />
+
+        <label class="modal-label" for="tool-name">Name</label>
+        <input id="tool-name" class="modal-input" @bind="_name" @bind:event="oninput" placeholder="What operators will see in the armoury" />
+    </ChildContent>
+    <Footer>
+        <button type="button" class="btn-ghost" @onclick="OnClose" disabled="@_busy">Cancel</button>
+        <button type="button" class="btn-primary" @onclick="UploadAsync" disabled="@_busy">@(_busy ? "Uploading…" : "Upload")</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<string> OnUploaded { get; set; }
+
+    private const long MaxBytes = 50L * 1024 * 1024;
+
+    private IBrowserFile? _file;
+    private string _name = "";
+    private string? _error;
+    private bool _busy;
+
+    private async Task TriggerBrowse()
+        => await JS.InvokeVoidAsync("eval", "document.getElementById('tool-file-input').click()");
+
+    private void OnFileChanged(InputFileChangeEventArgs e)
+    {
+        _file = e.File;
+        _error = null;
+
+        if (_file is not null && string.IsNullOrWhiteSpace(_name))
+        {
+            _name = Path.GetFileNameWithoutExtension(_file.Name);
+        }
+    }
+
+    private async Task UploadAsync()
+    {
+        _error = null;
+        if (_file is null || string.IsNullOrWhiteSpace(_name))
+        {
+            _error = "Pick a file and give it a name.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var operatorId = await GetOperatorIdAsync();
+            if (operatorId is null)
+            {
+                _error = "Your account isn't in the operator list, so the team server won't accept the upload.";
+                return;
+            }
+
+            using var form = new MultipartFormDataContent();
+            form.Add(new StringContent(_name.Trim()), "Name");
+            form.Add(new StringContent(operatorId.Value.ToString()), "OperatorID");
+            var fileContent = new StreamContent(_file.OpenReadStream(MaxBytes));
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            form.Add(fileContent, "file", _file.Name);
+
+            var response = await ServerHttp.PostAsync("api/v1/armoury/upload", form);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _error = body.Contains("Tools.Conflict")
+                    ? $"A tool called {_file.Name} is already in the armoury."
+                    : $"The team server refused the upload ({(int)response.StatusCode}).";
+                return;
+            }
+
+            await OnUploaded.InvokeAsync(_name.Trim());
+        }
+        catch (IOException e)
+        {
+            _error = $"Could not read the file: {e.Message}";
+        }
+        catch (HttpRequestException e)
+        {
+            _error = ServerDown.Is(e) ? ServerDown.Message : $"Could not reach the team server: {e.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task<int?> GetOperatorIdAsync()
+    {
+        var stored = await Session.GetAsync<ShellUser>(ShellUser.StorageKey);
+        if (!stored.Success || stored.Value is null)
+        {
+            return null;
+        }
+
+        var operators = await OperatorService.GetAllAsync();
+        return operators.FirstOrDefault(o => o.Username.Equals(stored.Value.Name, StringComparison.OrdinalIgnoreCase))?.ID;
+    }
+
+    private static string FormatSize(long bytes) => bytes >= 1_048_576 ? $"{bytes / 1_048_576.0:0.0} MB" : $"{Math.Max(1, (int)Math.Round(bytes / 1024.0))} KB";
+}

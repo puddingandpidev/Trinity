@@ -36,6 +36,24 @@ namespace TeamServer.Repositories
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         /// <summary>
+        /// Gets a task together with the result row it may already carry.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="RepositoryBase{T}.GetByIdAsync"/> uses <c>FindAsync</c>, which never loads the
+        /// <see cref="Trinity.Shared.Models.TaskResult"/> navigation. A command that reports more than once - a
+        /// chunked download reports once per chunk - then sees <c>Result == null</c>, inserts a second row and
+        /// the save fails on the unique index <c>IX_TaskResult_TaskID</c>. Load it, so the report updates the
+        /// row that is already there.
+        /// </remarks>
+        /// <param name="taskID">The task identifier.</param>
+        /// <returns>The task with its result (or error) loaded, or null when it does not exist.</returns>
+        public async Task<Trinity.Shared.Models.Task?> GetTaskWithResultAsync(int taskID)
+        {
+            return await _dbSet.Include(t => t.Result).FirstOrDefaultAsync(t => t.ID.Equals(taskID));
+        }
+
+        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+        /// <summary>
         /// Asynchronously gets queued tasks and projects them to TaskResponse instances for the specified agent.
         /// </summary>
         /// <remarks>Queries the DbSet including the Status navigation property, filters entities whose
@@ -48,7 +66,7 @@ namespace TeamServer.Repositories
         {
             return await _dbSet
                 .Where(t => t.Status.Equals(Status.QUEUED) && t.AgentID.Equals(agentID))
-                .Select(t => new TaskResponse(t.AgentID, Enum.GetName(t.CommandType)!, Enum.GetName(t.Status)!, t.CreatedAt))
+                .Select(t => new TaskResponse(t.AgentID, Enum.GetName(t.CommandType)!, Enum.GetName(t.Status)!, t.CreatedAt, t.ID))
                 .ToListAsync();
         }
 
@@ -63,7 +81,7 @@ namespace TeamServer.Repositories
         public async Task<List<TaskResponse>> GetAllAgentTasks()
         {
             return await _dbSet
-                .Select(t => new TaskResponse(t.AgentID, Enum.GetName(t.CommandType)!, Enum.GetName(t.Status)!, t.CreatedAt))
+                .Select(t => new TaskResponse(t.AgentID, Enum.GetName(t.CommandType)!, Enum.GetName(t.Status)!, t.CreatedAt, t.ID))
                 .ToListAsync();
         }
 
@@ -77,9 +95,22 @@ namespace TeamServer.Repositories
         /// <returns>A GetTaskDetailsResponse with task details, or null if no task has the specified ID.</returns>
         public async Task<GetTaskDetailsResponse?> GetTaskDetailsByIDAsync(int taskID)
         {
+            // Status/Result/Error are projected here so GET /api/v1/tasks/tasks/{ID} answers a
+            // task's outcome directly (spec 12.1.4.5), instead of the harness reading the database.
+            // The outcome is joined in as correlated subqueries rather than via the Result/Error
+            // navigations: Task.Result has no configured inverse, so a navigation projection would
+            // read a null shadow foreign key. This mirrors how the harness reads the two tables.
             return await _dbSet
                 .Where(t => t.ID.Equals(taskID))
-                .Select(t => new GetTaskDetailsResponse(t.ID, t.AgentID, Enum.GetName(t.CommandType)!, t.Command, t.CreatedAt))
+                .Select(t => new GetTaskDetailsResponse(
+                    t.ID,
+                    t.AgentID,
+                    Enum.GetName(t.CommandType)!,
+                    t.Command,
+                    t.CreatedAt,
+                    Enum.GetName(t.Status)!,
+                    _context.TaskResult.Where(r => r.TaskID == t.ID).Select(r => r.Result).FirstOrDefault(),
+                    _context.Errors.Where(e => e.TaskID == t.ID).Select(e => e.Message).FirstOrDefault()))
                 .FirstOrDefaultAsync();
         }
 

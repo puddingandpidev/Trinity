@@ -1,8 +1,7 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-using Microsoft.AspNetCore.SignalR;
 using System.Text;
 using System.Text.Json;
-using TeamServer.NotificationDispatchers;
+using TeamServer.Interface;
 using TeamServer.Repositories;
 using TeamServer.Services.Factories;
 using TeamServer.Utils;
@@ -27,18 +26,20 @@ namespace TeamServer.Services
         private readonly TaskResultFactory _taskResultFactory;
         private readonly HostRepository _hostRepo;
         private readonly PayloadRepository _payloadRepo;
-        private readonly IHubContext<NotificationHub> _hubContext;
+        private readonly INotificationHub _notificationHub;
         private readonly ICheckinResponseHandler _responseHandler;
         private readonly IHostFactory _hostFactory;
         private readonly ITaskRequestFactory _taskRequestFactory;
+        private readonly ILogger<AgentService> _logger;
+        private readonly IFileTransferService _fileTransferService;
 
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         public AgentService(AgentRepository agentRepository, TaskRepository taskRepository,
             AgentFactory agentFactory, TaskResultRepository taskResultRepository, TaskResultFactory taskResultFactory,
-            HostRepository hostRepository, PayloadRepository payloadRepository, IHubContext<NotificationHub> hubContext,
+            HostRepository hostRepository, PayloadRepository payloadRepository, INotificationHub notificationHub,
             ICheckinResponseHandler checkinResponseHandler, IHostFactory hostFactory,
-            ITaskRequestFactory taskRequestFactory)
+            ITaskRequestFactory taskRequestFactory, IFileTransferService fileTransferService, ILogger<AgentService> logger)
         {
             _agentRepo = agentRepository;
             _agentFactory = agentFactory;
@@ -47,10 +48,12 @@ namespace TeamServer.Services
             _taskResultRepo = taskResultRepository;
             _hostRepo = hostRepository;
             _payloadRepo = payloadRepository;
-            _hubContext = hubContext;
+            _notificationHub = notificationHub;
             _responseHandler = checkinResponseHandler;
             _hostFactory = hostFactory;
             _taskRequestFactory = taskRequestFactory;
+            _fileTransferService = fileTransferService;
+            _logger = logger;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
@@ -60,7 +63,7 @@ namespace TeamServer.Services
         /// <param name="blob">A base64-encoded string containing agent check-in data.</param>
         /// <returns>A task that represents the asynchronous operation. The task result contains a Result with the formatted
         /// check-in response.</returns>
-        public async Task<Result<string>> Checkin(string blob)
+        public async Task<Result<string>> Checkin(string blob, int sleepMs = 0, int jitter = 0)
         {
             // Decode base64
             var decodedBytes = Util.Base64Decode(blob);
@@ -70,12 +73,35 @@ namespace TeamServer.Services
             var response = blobSpan.Slice(36, blobSpan.Length - UUIDOffset);
 
             var agent = await _agentRepo.GetAgentByCheckInUUID(uuid);
-            string result = agent == null
-                ? await ProcessIntialCheckin(uuid, response)
-                : FormatRequest(uuid, await ProcessFullyEstablishedCheckin(agent.ID, response));
+            _logger.LogDebug(
+                "Checkin uuid={Uuid} payloadLen={PayloadLen} knownAgent={Known}",
+                uuid,
+                response.Length,
+                agent != null
+            );
 
-            await _hubContext.Clients.All.SendAsync("AgentPulse");
-            return result;
+            if (agent == null)
+            {
+                return await ProcessIntialCheckin(uuid, response);
+            }
+
+            // The UI derives online/offline from LastCheckIn, so every check-in has to move it.
+            // It was only set when the session was created, which left live agents "offline"
+            // for their whole life.
+            agent.LastCheckIn = DateTime.UtcNow;
+
+            // The interval is the agent's, not the server's: `set/sleep` changes the loop, and only
+            // the agent knows what it actually adopted (including jitter). Without this the panel
+            // kept saying 5000 ms for an agent on a 60 s beacon.
+            if (sleepMs > 0)
+            {
+                agent.Sleep = sleepMs;
+                agent.Jitter = jitter;
+            }
+            await _agentRepo.CommitAsync();
+
+            var request = await ProcessFullyEstablishedCheckin(agent.ID, uuid, response);
+            return FormatRequest(uuid, request);
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
@@ -90,7 +116,16 @@ namespace TeamServer.Services
             var data = JsonSerializer.Deserialize<IntialCheckInRequest>(requestBody.Span) ?? new IntialCheckInRequest();
             var payload = await _payloadRepo.GetPayloadByUUIDAsync(uuid);
 
-            var agent = _agentFactory.Create(data!, payload!);
+            var agent = _agentFactory.Create(
+                data!,
+                payload!.AES256KEY,
+                5000,
+                10,
+                Util.GetEnumValue<Architectures>(payload.Architecture),
+                payload.ID,
+                payload.ListenerID,
+                payload.CampaignID
+            );
             await _agentRepo.CreateAgentAsync(agent);
             await _agentRepo.CommitAsync();
 
@@ -98,9 +133,12 @@ namespace TeamServer.Services
             await _hostRepo.AddHostAsync(host);
             await _hostRepo.CommitAsync();
 
-            await _hubContext.Clients.All.SendAsync("EventLogNotification",
+            // A brand-new agent is the event an operator most wants live, so it goes to the campaign's
+            // event-log group as soon as the session exists (the campaign comes from the payload).
+            await _notificationHub.SendEventLogAsync(
+                payload.CampaignID.ToString(),
                 new EventLog(DateTime.UtcNow, EventLogType.AGENT,
-                    $"New agent checked in: {agent.Username}@{agent.ExternalIP} (PID {agent.ProcessPID})"));
+                    $"Agent {agent.ID} checked in as '{data!.user}' ({data.processName}) on {data.internalIP}"));
 
             return CreateBase64Blob(agent.CheckInUUID);
         }
@@ -112,35 +150,66 @@ namespace TeamServer.Services
         /// <param name="agentID"></param>
         /// <param name="requestBody"></param>
         /// <returns></returns>
-        private async Task<string> ProcessFullyEstablishedCheckin(int agentID, ReadOnlyMemory<byte> requestBody)
+        private async Task<string> ProcessFullyEstablishedCheckin(int agentID, string agentKey, ReadOnlyMemory<byte> requestBody)
         {
-            var agent = await _agentRepo.GetAgentByIDAsync(agentID);
-            if (agent != null)
-            {
-                agent.LastCheckIn = DateTime.UtcNow;
-                await _agentRepo.CommitAsync();
-            }
-
             using JsonDocument doc = JsonDocument.Parse(requestBody);
-            var taskResults = doc.RootElement.EnumerateArray();
 
-            if (taskResults.Any())
+            // The agent posts an array of task results, or {} / [] when it has nothing to report.
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
             {
-                while (taskResults.MoveNext())
+                foreach (JsonElement result in doc.RootElement.EnumerateArray())
                 {
-                    await _responseHandler.HandleResponseAsync(taskResults.Current);
+                    await _responseHandler.HandleResponseAsync(result);
+                    await AdvanceDownloadAsync(result, agentKey);
                 }
             }
 
             var task = await _taskRepo.GetTaskFromQueueAsync(agentID);
-
-            if (task != null)
+            if (task?.CommandType == TaskType.DOWNLOAD && task.Code == TaskCode.DOWNLOAD)
             {
-                task.Status = Status.DISPATCHED;
+                try
+                {
+                    var command = await _fileTransferService.PrepareDownloadChunkAsync(task, agentKey);
+                    await _taskRepo.CommitAsync();
+                    return _taskRequestFactory.Create(task, command);
+                }
+                catch (Exception ex)
+                {
+                    // A missing file (or any preparation failure) must not abort the check-in:
+                    // that leaves the task parked in the queue forever and the agent never learns
+                    // it has work. Fall back to a plain task and let the client fetch it.
+                    _logger.LogWarning(
+                        ex,
+                        "Could not prepare download chunk for task {TaskID}; falling back to a plain task",
+                        task.ID
+                    );
+                    return _taskRequestFactory.Create(task);
+                }
+            }
+            return _taskRequestFactory.Create(task);
+        }
+
+        private async Task AdvanceDownloadAsync(JsonElement response, string agentKey)
+        {
+            if (!response.TryGetProperty("Status", out var statusElement)
+                || statusElement.GetInt32() != (int)Status.SUCCESS)
+                return;
+
+            var taskId = response.GetProperty("TaskID").GetInt32();
+            var task = await _taskRepo.GetByIdAsync(taskId);
+            if (task?.CommandType != TaskType.DOWNLOAD || task.Code != TaskCode.DOWNLOAD)
+                return;
+
+            // A command without "Final" was delivered as a plain task (no chunk prepared, e.g. the
+            // file was missing): the agent fetched it itself, so its success result is terminal.
+            if (!task.Command.RootElement.TryGetProperty("Final", out var finalElement))
+                return;
+
+            if (!finalElement.GetBoolean())
+            {
+                task.Status = Status.QUEUED;
                 await _taskRepo.CommitAsync();
             }
-
-            return _taskRequestFactory.Create(task);
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//

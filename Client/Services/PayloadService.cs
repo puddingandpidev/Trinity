@@ -1,39 +1,30 @@
-using Refit;
+using System.Net.Http.Json;
 using Trinity.Shared.DTOs.Payload;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Services;
 
-public sealed record PayloadEntry(
-    int Id,
-    string Name,
-    long Size,
-    string Type,
-    DateTime CreatedAt);
-
-public class PayloadService(IPayloadAPI api)
+public class PayloadService
 {
-    public async Task<List<PayloadEntry>> GetTasksAsync()
-    {
-        try
-        {
-            var dtos = await api.GetPayloadsAsync() ?? [];
-            return dtos.Select(d => new PayloadEntry(d.ID, d.Name, d.Size, d.Type, d.CreateTime)).ToList();
-        }
-        catch (ApiException) { return []; }
-    }
+    private readonly AuthorizedHttp _http;
 
-    public async Task<bool> GenerateAsync(PayloadCreationDTO dto)
-    {
-        try { await api.GenerateAsync(dto); return true; }
-        catch (ApiException) { return false; }
-    }
+    public PayloadService(AuthorizedHttp http)
+        => _http = http;
 
-    public async Task<bool> DeleteAsync(int id)
-    {
-        try { await api.DeleteAsync(id); return true; }
-        catch (ApiException) { return false; }
-    }
+    /// <summary>
+    /// GET /api/v1/payloads — returns a summary list of all payloads.
+    /// Uses PayloadDTO (Name, Size, Type, CreateTime) rather than the full model,
+    /// because that's what the API returns for list views.
+    /// </summary>
+    public async Task<List<PayloadDTO>> GetAllAsync()
+        => await _http.GetFromJsonAsync<List<PayloadDTO>>("/api/v1/payloads") ?? [];
 
-    public string GetDownloadUrl(int payloadId) => $"/api/v1/payloads/{payloadId}";
+    /// <summary>
+    /// POST /api/v1/payloads/generate — asks the server to build a new payload.
+    /// PayloadCreationDTO carries the config: listener, campaign, architecture, type, etc.
+    /// </summary>
+    public async Task<bool> CreateAsync(PayloadCreationDTO dto)
+    {
+        var response = await _http.PostAsJsonAsync("/api/v1/payloads/generate", dto);
+        return response.IsSuccessStatusCode;
+    }
 }

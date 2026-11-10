@@ -8,8 +8,13 @@ namespace TeamServer.Validators.Commands
     {
         public SetSleepDTOValidator()
         {
-            RuleFor(x => x.Sleep).NotEmpty();
-            RuleFor(x => x.Jitter).NotEmpty();
+            // Sleep must be a positive interval; the agent clamps below 1 s and above 24 h.
+            RuleFor(x => x.Sleep).GreaterThan(0u);
+
+            // Jitter is a percentage where 0 is the normal "no jitter" value. `NotEmpty()` treats a
+            // value type's default as empty, so it rejected exactly the zero-jitter case the harness
+            // sends — the rule was never able to accept the value it was meant to describe.
+            RuleFor(x => x.Jitter).InclusiveBetween(0u, 100u);
         }
     }
 }

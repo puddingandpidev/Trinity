@@ -1,15 +1,14 @@
-using TrinityTask = Trinity.Shared.Models.Task;
 using System.Globalization;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using Client.Services;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using Trinity.Shared.DTOs.Task;
 
 namespace Client.Components.Pages.Tasks;
-
 public partial class Tasks
 {
     private class TaskRow
@@ -23,6 +22,7 @@ public partial class Tasks
         public string DueDate = "Not provided";
         public int Progress;
         public int AgentId;
+        public int TaskId;
         public string CommandType = "";
         public DateTime Timestamp;
     }
@@ -30,7 +30,9 @@ public partial class Tasks
     private record UpcomingRow(string Priority, string Name, string Client, string Campaign, string Assignee, string DueDate, string Badge, string BadgeColor);
     private record StatVm(string Label, string Value, string Trend, bool Up, string Icon);
     private record SliceVm(string Name, int Count, int Percent, string Color);
-    private record ActionVm(string Label, string Icon, Action OnClick);
+    // Enabled is carried by the action itself: the button used to be enabled only for labels the
+    // razor whitelisted, so every new action arrived disabled and looked like a selection problem.
+    private record ActionVm(string Label, string Icon, Action OnClick, bool Enabled = true, string? Hint = null);
 
     private readonly List<TaskRow> _tasks = new();
     private readonly List<UpcomingRow> _upcoming = new();
@@ -46,12 +48,12 @@ public partial class Tasks
     private bool _isLoading;
 
     private string _detailIdInput = "";
-    private TrinityTask? _detail;
+    private GetTaskDetailsResponse? _detail;
     private string? _detailError;
     private bool _detailLoading;
 
     [Inject]
-    private TaskApiService TaskApiClient { get; set; } = default!;
+    private TaskApiClient TaskApiClient { get; set; } = default!;
 
     [Inject]
     private IJSRuntime JS { get; set; } = default!;
@@ -80,9 +82,9 @@ public partial class Tasks
 
         try
         {
-            var tasks = await TaskApiClient.GetAllTasksAsync();
+            var tasks = await TaskApiClient.GetTasksAsync();
             _tasks.AddRange(tasks
-                .OrderByDescending(task => task.CreatedAt)
+                .OrderByDescending(task => task.timeStamp)
                 .Select(ToTaskRow));
             _page = 1;
         }
@@ -108,14 +110,15 @@ public partial class Tasks
         }
     }
 
-    private static TaskRow ToTaskRow(TrinityTask task) => new()
+    private static TaskRow ToTaskRow(TaskResponse task) => new()
     {
-        Name = task.CommandType.ToString(),
-        Client = $"Agent {task.AgentID}",
-        Status = task.Status.ToString(),
-        AgentId = task.AgentID,
-        CommandType = task.CommandType.ToString(),
-        Timestamp = task.CreatedAt
+        Name = task.commandType,
+        Client = $"Agent {task.agentID}",
+        Status = task.status,
+        AgentId = task.agentID,
+        TaskId = task.taskID,
+        CommandType = task.commandType,
+        Timestamp = task.timeStamp
     };
 
     private IEnumerable<string> Assignees => [];
@@ -148,7 +151,71 @@ public partial class Tasks
 
     private void ResetPage() => _page = 1;
     private void GoToPage(int p) => _page = Math.Clamp(p, 1, TotalPages);
-    private void SelectRow(TaskRow row) => _selected = row == _selected ? null : row;
+    /// <summary>
+    /// Selects a row and loads its detail, so the outcome (result or error) is one click away.
+    /// </summary>
+    /// <remarks>
+    /// The list can only show a status word. An operator looking at `ERROR` needs the reason, and
+    /// making them copy an id into a box to get it is the difference between a usable screen and a
+    /// diagnosis tool. Deselecting clears the detail.
+    /// </remarks>
+    private async Task SelectRow(TaskRow row)
+    {
+        if (row == _selected)
+        {
+            _selected = null;
+            return;
+        }
+
+        _selected = row;
+        _detailIdInput = row.TaskId.ToString(CultureInfo.InvariantCulture);
+        if (row.TaskId > 0)
+        {
+            await LookupTaskDetailAsync();
+        }
+    }
+
+    // Same treatment as the Clients table: a row is a control. Without this, Stop Selected Task is
+    // unreachable without a mouse, because the row has to be selected first.
+    private void RowKey(KeyboardEventArgs e, TaskRow row)
+    {
+        if (e.Key is "Enter" or " " or "Spacebar")
+        {
+            _ = SelectRow(row);
+        }
+    }
+
+    /// <summary>
+    /// Removes a queued task through the server's stop endpoint, then reloads the list.
+    /// </summary>
+    /// <remarks>
+    /// A task the agent has already picked up is not interrupted — the server removes the queue
+    /// entry, and the agent's own result (if it comes) is stored against a task that no longer
+    /// exists. The UI says which of the two happened instead of implying a cancel.
+    /// </remarks>
+    private async Task StopSelectedTask()
+    {
+        if (_selected is null)
+        {
+            ShowToast("Select a task in the table first");
+            return;
+        }
+
+        var target = _selected;
+        try
+        {
+            var stopped = await TaskApiClient.StopTaskAsync(target.TaskId);
+            ShowToast(stopped
+                ? $"Stopped task {target.TaskId} ({target.Name} on agent {target.AgentId})"
+                : $"Task {target.TaskId} was already gone from the queue");
+            _selected = null;
+            await LoadTasksAsync();
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            ShowToast(ServerDown.Is(exception) ? ServerDown.Message : $"Could not stop the task: {exception.Message}");
+        }
+    }
 
     private async Task LookupTaskDetailAsync()
     {
@@ -164,7 +231,7 @@ public partial class Tasks
         _detailLoading = true;
         try
         {
-            _detail = await TaskApiClient.GetByIdAsync(id);
+            _detail = await TaskApiClient.GetTaskDetailAsync(id);
             if (_detail is null)
             {
                 _detailError = $"No task found with ID {id}.";
@@ -266,11 +333,8 @@ public partial class Tasks
 
     private static readonly Dictionary<string, string> _colorVar = new()
     {
-        ["green"] = "var(--status-green)",
-        ["blue"] = "var(--status-blue)",
-        ["yellow"] = "var(--status-yellow)",
-        ["red"] = "var(--status-red)",
-        ["gray"] = "var(--text-muted)"
+        ["green"] = "var(--status-green)", ["blue"] = "var(--status-blue)",
+        ["yellow"] = "var(--status-yellow)", ["red"] = "var(--status-red)", ["gray"] = "var(--text-muted)"
     };
 
     private string Gradient(List<SliceVm> slices)
@@ -291,81 +355,23 @@ public partial class Tasks
 
     private ActionVm[] Actions => new[]
     {
-        new ActionVm("Create New Task",
-            "<line x1='12' y1='5' x2='12' y2='19'/><line x1='5' y1='12' x2='19' y2='12'/>",
-            OpenCreate),
-        new ActionVm("Schedule Task",
-            "<circle cx='12' cy='12' r='9'/><polyline points='12 7 12 12 15 14'/>",
-            OpenSchedule),
-        new ActionVm("Assign Task",
-            "<circle cx='12' cy='8' r='4'/><path d='M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1'/>",
-            OpenAssign),
-        new ActionVm("Import Tasks",
-            "<path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/><polyline points='17 8 12 3 7 8'/><line x1='12' y1='3' x2='12' y2='15'/>",
-            () => ShowToast("Imported tasks from file (mock)")),
-        new ActionVm("Task Templates",
-            "<line x1='8' y1='6' x2='21' y2='6'/><line x1='8' y1='12' x2='21' y2='12'/><line x1='8' y1='18' x2='21' y2='18'/><line x1='3' y1='6' x2='3.01' y2='6'/><line x1='3' y1='12' x2='3.01' y2='12'/><line x1='3' y1='18' x2='3.01' y2='18'/>",
-            () => ShowToast("Opened task templates (mock)")),
-        new ActionVm("Bulk Update",
-            "<path d='M4 6h16M4 12h16M4 18h10'/><polyline points='16 15 19 18 22 15'/>",
-            () => ShowToast($"Bulk update queued for {FilteredCount} tasks (mock)")),
-        new ActionVm("Task Reports",
-            "<line x1='18' y1='20' x2='18' y2='10'/><line x1='12' y1='20' x2='12' y2='4'/><line x1='6' y1='20' x2='6' y2='14'/>",
-            () => ShowToast("Generated task report (mock)")),
+        // The TeamServer has no task-creation endpoint (TaskController is read-only: list, stop,
+        // clear queue). Queueing a command is the real write path, so that is what this offers
+        // instead of a dialog that filled a local list and closed.
+        new ActionVm("Queue a Command",
+            "<polyline points='4 17 10 11 4 5'/><line x1='12' y1='19' x2='20' y2='19'/>",
+            () => Navigation.NavigateTo("clients"), Hint: "Opens the client list, where a command can be queued."),
+        // The server already implements this (DELETE /api/v1/tasks/{id}/stop) — it was the one
+        // capability with no screen, which is why "Cancel Download" looked missing when the gap
+        // was on this side, not in the agent.
+        new ActionVm("Stop Selected Task",
+            "<circle cx='12' cy='12' r='9'/><line x1='9' y1='9' x2='15' y2='15'/><line x1='15' y1='9' x2='9' y2='15'/>",
+            () => _ = StopSelectedTask(), Enabled: true,
+            Hint: "Removes the selected task from the queue."),
         new ActionVm("View All Tasks",
             "<line x1='3' y1='6' x2='21' y2='6'/><line x1='3' y1='12' x2='21' y2='12'/><line x1='3' y1='18' x2='21' y2='18'/>",
             ClearFilters),
     };
-
-    private void OpenCreate()
-    {
-        _form = new TaskRow { Priority = "Medium", Status = "Pending", DueDate = "31/01/2026" };
-        _showCreate = true;
-    }
-
-    private void CreateTask()
-    {
-        if (string.IsNullOrWhiteSpace(_form.Name)) { ShowToast("Task name is required"); return; }
-        if (string.IsNullOrWhiteSpace(_form.Client)) _form.Client = "CLIENT-000";
-        if (string.IsNullOrWhiteSpace(_form.Campaign)) _form.Campaign = "Unassigned";
-        if (string.IsNullOrWhiteSpace(_form.Assignee)) _form.Assignee = "Unassigned";
-        _form.Progress = 0;
-        _tasks.Insert(0, _form);
-        ShowToast($"Task \"{_form.Name}\" created");
-        _showCreate = false;
-        _page = 1;
-    }
-
-    private void OpenAssign()
-    {
-        if (_selected is null) { ShowToast("Select a task in the table first"); return; }
-        _assignName = _selected.Assignee;
-        _showAssign = true;
-    }
-
-    private void AssignTask()
-    {
-        if (_selected is null) return;
-        var name = string.IsNullOrWhiteSpace(_assignName) ? "Unassigned" : _assignName.Trim();
-        _selected.Assignee = name;
-        ShowToast($"\"{_selected.Name}\" assigned to {name}");
-        _showAssign = false;
-    }
-
-    private void OpenSchedule()
-    {
-        if (_selected is null) { ShowToast("Select a task in the table first"); return; }
-        _scheduleDate = "";
-        _showSchedule = true;
-    }
-
-    private void ScheduleTask()
-    {
-        if (_selected is null) return;
-        var when = string.IsNullOrWhiteSpace(_scheduleDate) ? "next run window" : _scheduleDate.Trim();
-        ShowToast($"\"{_selected.Name}\" scheduled for {when}");
-        _showSchedule = false;
-    }
 
     private void ClearFilters()
     {
@@ -385,10 +391,11 @@ public partial class Tasks
         }
 
         var csv = new StringBuilder();
-        AppendCsvRow(csv, "Timestamp", "Agent ID", "Command Type", "Status");
+        AppendCsvRow(csv, "Task ID", "Timestamp", "Agent ID", "Command Type", "Status");
         foreach (var row in rows)
         {
             AppendCsvRow(csv,
+                row.TaskId.ToString(CultureInfo.InvariantCulture),
                 row.Timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
                 row.AgentId.ToString(CultureInfo.InvariantCulture),
                 row.CommandType,

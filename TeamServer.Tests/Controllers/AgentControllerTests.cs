@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TeamServer.Controllers;
 using TeamServer.Interface;
@@ -22,7 +23,8 @@ namespace TeamServer.Tests.Controllers
         public AgentControllerTests()
         {
             _agentServiceMock = new Mock<IAgentService>();
-            _controller = new AgentController(_agentServiceMock.Object);
+            // The controller takes a logger for the check-in diagnostic; the tests do not assert on it.
+            _controller = new AgentController(_agentServiceMock.Object, NullLogger<AgentController>.Instance);
         }
 
         // =======================================================

@@ -1,32 +1,42 @@
-using Refit;
+using System.Net.Http.Json;
 using Trinity.Shared.Models;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Services;
 
-public class CampaignService(ICampaignAPI api)
+public class CampaignService
 {
-    public async Task<List<Campaign>> GetTasksAsync()
-    {
-        try { return await api.GetCampaignsAsync() ?? []; }
-        catch (ApiException) { return []; }
-    }
+    private readonly AuthorizedHttp _http;
 
+    public CampaignService(AuthorizedHttp http)
+        => _http = http;
+
+    /// <summary>
+    /// GET /api/v1/campaigns — returns all campaigns.
+    /// </summary>
+    public async Task<List<Campaign>> GetAllAsync()
+        => await _http.GetFromJsonAsync<List<Campaign>>("/api/v1/campaigns") ?? [];
+
+    /// <summary>
+    /// GET /api/v1/campaigns/{id} — returns one campaign.
+    /// </summary>
     public async Task<Campaign?> GetByIdAsync(int id)
+        => await _http.GetFromJsonAsync<Campaign>($"/api/v1/campaigns/{id}");
+
+    /// <summary>
+    /// POST /api/v1/campaigns — creates a new campaign.
+    /// </summary>
+    public async Task<bool> CreateAsync(Campaign campaign)
     {
-        try { return await api.GetByIdAsync(id); }
-        catch (ApiException) { return null; }
+        var response = await _http.PostAsJsonAsync("/api/v1/campaigns", campaign);
+        return response.IsSuccessStatusCode;
     }
 
-    public async Task<bool> CreateAsync(string name, string description = "")
-    {
-        try { await api.CreateAsync(new { Name = name, Description = description }); return true; }
-        catch (ApiException) { return false; }
-    }
-
+    /// <summary>
+    /// DELETE /api/v1/campaigns/{id} — deletes a campaign.
+    /// </summary>
     public async Task<bool> DeleteAsync(int id)
     {
-        try { await api.DeleteAsync(id); return true; }
-        catch (ApiException) { return false; }
+        var response = await _http.DeleteAsync($"/api/v1/campaigns/{id}");
+        return response.IsSuccessStatusCode;
     }
 }

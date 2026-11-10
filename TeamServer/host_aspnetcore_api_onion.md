@@ -9,7 +9,7 @@ and exposes `GET /weatherforecast`.
 From the repository root:
 
 ```bash
-docker compose up --build tor weather-api redirector
+docker compose -f compose.yaml up --build tor weather-api redirector
 ```
 
 This starts four containers: `tor`, `socks-proxy`, `weather-api`, and
@@ -77,7 +77,7 @@ both values when starting Compose:
 ```bash
 WEATHER_API_BASE=http://your-api-address \
 WEATHER_API_PROXY=socks5h://socks-proxy:1080 \
-docker compose up --build tor redirector
+docker compose -f compose.yaml up --build tor redirector
 ```
 
 For the built-in onion service, leave `WEATHER_API_BASE` empty. The redirector
@@ -95,7 +95,7 @@ sudo apt install tor -y
 
 Edit `/etc/tor/torrc` and add an HTTP-only hidden-service mapping:
 
-```
+```text
 HiddenServiceDir /var/lib/tor/myapi_hidden_service/
 HiddenServicePort 80 127.0.0.1:8080
 ```
@@ -120,7 +120,7 @@ Set the resulting address in the redirector:
 ```bash
 WEATHER_API_BASE=http://YOUR_ONION_ADDRESS \
 WEATHER_API_PROXY=socks5h://socks-proxy:1080 \
-docker compose up --build tor redirector
+docker compose -f compose.yaml up --build tor redirector
 ```
 
 Use the [Tor Browser](https://www.torproject.org/) or the redirector's

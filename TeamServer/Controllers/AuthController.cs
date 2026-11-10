@@ -1,73 +1,75 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
-using TeamServer.Repositories;
+using TeamServer.Interface;
 using Trinity.Shared.DTOs.Authentication;
 
 namespace TeamServer.Controllers
 {
-    [AllowAnonymous]
+    /// <summary>
+    /// Issues JWT bearer tokens to Client operators.
+    /// Ref: https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-jwt-bearer-authentication
+    /// </summary>
     [Route(Routes.Auth)]
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly OperatorRepository _operators;
-        private readonly CampaignBridgeRepository _campaignBridge;
-        private readonly IConfiguration _config;
+        private readonly IAuthService _authService;
 
-        public AuthController(OperatorRepository operators, CampaignBridgeRepository campaignBridge, IConfiguration config)
+        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+        public AuthController(IAuthService authService)
         {
-            _operators = operators;
-            _campaignBridge = campaignBridge;
-            _config = config;
+            _authService = authService;
         }
 
+        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+        /// <summary>
+        /// Validates operator credentials and returns a signed JWT.
+        /// </summary>
+        [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginDTO dto)
+        [ProducesResponseType(typeof(LoginResponseDTO), StatusCodes.Status200OK)]
+        public async Task<IActionResult> Login([FromBody] LoginDTO loginDTO)
         {
-            var op = await _operators.GetByUsernameAsync(dto.Username);
+            var result = await _authService.LoginAsync(loginDTO);
 
-            // TODO: replace plain-text comparison with BCrypt.Verify once passwords are hashed
-            if (op is null || op.Password != dto.Password)
-                return Unauthorized();
+            if (!result.IsSuccess)
+            {
+                return Unauthorized(result.Error);
+            }
 
-            var campaigns = await _campaignBridge.GetCampaignsByOperatorIdAsync(op.ID);
-            var campaignId = campaigns.FirstOrDefault()?.ID;
-
-            var token = BuildToken(op.Username, campaignId);
-            return Ok(new LoginResponse { Token = token, Username = op.Username });
+            return Ok(result.Response);
         }
 
-        private string BuildToken(string username, int? campaignId)
+        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+        /// <summary>
+        /// Creates an operator account and returns a token, when the deployment allows
+        /// self-registration (Auth:AllowSelfRegistration).
+        /// </summary>
+        /// <remarks>
+        /// Added for lab/client testing so an Android build can sign in without a Firebase
+        /// identity. It is off by default; enabling it in compose is a deliberate act. The
+        /// account is a plain operator — there is no admin role to escalate to — and the
+        /// password is stored as a PBKDF2 hash.
+        /// </remarks>
+        [AllowAnonymous]
+        [HttpPost("register")]
+        [ProducesResponseType(typeof(LoginResponseDTO), StatusCodes.Status200OK)]
+        public async Task<IActionResult> Register([FromBody] RegisterDTO registerDTO)
         {
-            var key     = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
-            var creds   = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-            var expiry  = DateTime.UtcNow.AddHours(_config.GetValue<double>("Jwt:ExpiryHours", 8));
+            var result = await _authService.RegisterAsync(registerDTO);
 
-            var claims = new List<Claim>
+            if (result.IsSuccess)
             {
-                new(JwtRegisteredClaimNames.Sub, username),
-                new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-                new(JwtRegisteredClaimNames.Iat,
-                    DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
-                    ClaimValueTypes.Integer64),
+                return Ok(result.Response);
+            }
+
+            return result.Error.Code switch
+            {
+                "Auth.UsernameTaken" => Conflict(result.Error),
+                "Auth.RegistrationDisabled" => StatusCode(StatusCodes.Status403Forbidden, result.Error),
+                _ => BadRequest(result.Error),
             };
-
-            if (campaignId is int id)
-                claims.Add(new Claim("campaignId", id.ToString()));
-
-            var jwt = new JwtSecurityToken(
-                issuer:             _config["Jwt:Issuer"],
-                audience:           _config["Jwt:Audience"],
-                claims:             claims,
-                expires:            expiry,
-                signingCredentials: creds);
-
-            return new JwtSecurityTokenHandler().WriteToken(jwt);
         }
     }
 }

@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using TeamServer.Controllers;
 using TeamServer.Interface;
-using Trinity.Shared.Enums;
 using Trinity.Shared.Errors;
 
 // https://docs.educationsmediagroup.com/unit-testing-csharp/moq/verifications
@@ -21,70 +20,58 @@ namespace TeamServer.Tests.Controllers
             _controller = new FilesController(_fileStorageServiceMock.Object);
         }
 
-        // UploadFile
+        // UploadFileAsync
 
         [Fact]
-        public async Task UploadFile_WhenServiceSucceeds_ReturnsOk()
+        public async Task UploadFileAsync_WhenServiceSucceeds_ReturnsOk()
         {
-            // Arrange
+            // Arange
             var fileMock = new Mock<IFormFile>();
-            var expectedPath = "test.txt";
+            var expectedPath = "uploads/test.txt";
 
-            _fileStorageServiceMock
-                .Setup(x => x.SaveFileAsync(fileMock.Object))
-                .ReturnsAsync(expectedPath);
+            _fileStorageServiceMock.Setup(x => x.SaveFileAsync(fileMock.Object)).ReturnsAsync(expectedPath);
 
             // Act
-            var result = await _controller.UploadFile(fileMock.Object);
+            var result = await _controller.UploadFileAsync(fileMock.Object);
 
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
             Assert.Equal(expectedPath, okResult.Value);
 
-            _fileStorageServiceMock.Verify(
-                x => x.SaveFileAsync(fileMock.Object),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.SaveFileAsync(fileMock.Object), Times.Once());
         }
 
         [Fact]
-        public async Task UploadFile_WhenServiceFails_ReturnsBadRequest()
+        public async Task UploadFileAsync_WhenServiceFails_ReturnsBadRequest()
         {
-            // Arrange
+            // Arange
             var fileMock = new Mock<IFormFile>();
             var error = FileError.EmptyFile();
 
-            _fileStorageServiceMock
-                .Setup(x => x.SaveFileAsync(fileMock.Object))
-                .ReturnsAsync(error);
+            _fileStorageServiceMock.Setup(x => x.SaveFileAsync(fileMock.Object)).ReturnsAsync(error);
 
             // Act
-            var result = await _controller.UploadFile(fileMock.Object);
+            var result = await _controller.UploadFileAsync(fileMock.Object);
 
             // Assert
             var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
             Assert.Equal(error, badRequestResult.Value);
 
-            _fileStorageServiceMock.Verify(
-                x => x.SaveFileAsync(fileMock.Object),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.SaveFileAsync(fileMock.Object), Times.Once());
         }
 
         // DownloadFileAsync
-
         [Fact]
         public async Task DownloadFileAsync_WhenServiceSucceeds_ReturnsFile()
         {
             // Arrange
             var fileName = "test.txt";
-            var folderName = FileFolders.Uploads;
             var fileBytes = new byte[] { 1, 2, 3, 4 };
 
-            _fileStorageServiceMock
-                .Setup(x => x.GetFileAsync(fileName, folderName))
-                .ReturnsAsync(fileBytes);
+            _fileStorageServiceMock.Setup(x => x.GetFileAsync(fileName)).ReturnsAsync(fileBytes);
 
             // Act
-            var result = await _controller.DownloadFileAsync(fileName, folderName);
+            var result = await _controller.DownloadFileAsync(fileName);
 
             // Assert
             var fileResult = Assert.IsType<FileContentResult>(result);
@@ -93,9 +80,7 @@ namespace TeamServer.Tests.Controllers
             Assert.Equal("application/octet-stream", fileResult.ContentType);
             Assert.Equal(fileName, fileResult.FileDownloadName);
 
-            _fileStorageServiceMock.Verify(
-                x => x.GetFileAsync(fileName, folderName),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.GetFileAsync(fileName), Times.Once());
         }
 
         [Fact]
@@ -103,34 +88,26 @@ namespace TeamServer.Tests.Controllers
         {
             // Arrange
             var fileName = "missing.txt";
-            var folderName = FileFolders.Uploads;
             var error = FileError.FileNotFound(fileName);
 
-            _fileStorageServiceMock
-                .Setup(x => x.GetFileAsync(fileName, folderName))
-                .ReturnsAsync(error);
+            _fileStorageServiceMock.Setup(x => x.GetFileAsync(fileName)).ReturnsAsync(error);
 
-            // Act
-            var result = await _controller.DownloadFileAsync(fileName, folderName);
+            // Act 
+            var result = await _controller.DownloadFileAsync(fileName);
 
             // Assert
             var notFoundResult = Assert.IsType<NotFoundObjectResult>(result);
 
             Assert.Equal(error, notFoundResult.Value);
 
-            _fileStorageServiceMock.Verify(
-                x => x.GetFileAsync(fileName, folderName),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.GetFileAsync(fileName), Times.Once());
         }
 
         // List Files
-
         [Fact]
         public void ListFiles_WhenServiceSucceeds_ReturnsOk()
         {
             // Arrange
-            var folderName = FileFolders.Uploads;
-
             var expectedFiles = new List<string>
             {
                 "test.txt",
@@ -138,45 +115,36 @@ namespace TeamServer.Tests.Controllers
                 "image.png"
             };
 
-            _fileStorageServiceMock
-                .Setup(x => x.ListFiles(folderName))
-                .Returns(expectedFiles);
+            _fileStorageServiceMock.Setup(x => x.ListFiles()).Returns(expectedFiles);
 
             // Act
-            var result = _controller.ListFiles(folderName);
+            var result = _controller.ListFiles();
 
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
 
             Assert.Equal(expectedFiles, okResult.Value);
 
-            _fileStorageServiceMock.Verify(
-                x => x.ListFiles(folderName),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.ListFiles(), Times.Once());
         }
 
         [Fact]
         public void ListFiles_WhenServiceFails_ReturnsBadRequest()
         {
             // Arrange
-            var folderName = FileFolders.Uploads;
             var error = FileError.FileNotFound("No Files Found.");
 
-            _fileStorageServiceMock
-                .Setup(x => x.ListFiles(folderName))
-                .Returns(error);
+            _fileStorageServiceMock.Setup(x => x.ListFiles()).Returns(error);
 
             // Act
-            var result = _controller.ListFiles(folderName);
+            var result = _controller.ListFiles();
 
             // Assert
             var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
 
             Assert.Equal(error, badRequestResult.Value);
 
-            _fileStorageServiceMock.Verify(
-                x => x.ListFiles(folderName),
-                Times.Once());
+            _fileStorageServiceMock.Verify(x => x.ListFiles(), Times.Once());
         }
     }
 }

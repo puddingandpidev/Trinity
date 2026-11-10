@@ -1,16 +1,17 @@
-using Trinity.Shared.Enums;
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
 
 namespace TeamServer.Services;
 
 public sealed class ReceivedFileService : IReceivedFileService
 {
+    // This service lists completed/top-level files, not chunk directories.
     private readonly string _filesDirectory;
 
     public ReceivedFileService(IConfiguration configuration, IWebHostEnvironment environment)
     {
+        // Resolve the same configured storage location used by FileTransferService.
         var root = Path.GetFullPath(configuration["StoragePath"] ?? Path.Combine(environment.ContentRootPath, "storage"));
-        _filesDirectory = Path.Combine(root, FileFolders.Loot.ToString());
+        _filesDirectory = Path.Combine(root, "files");
         Directory.CreateDirectory(_filesDirectory);
     }
 
@@ -45,5 +46,27 @@ public sealed class ReceivedFileService : IReceivedFileService
 
         // Open read-only and allow other readers to access the same file.
         return Task.FromResult<FileStream?>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+    }
+
+    /// <summary>
+    /// Deletes one received file from its campaign directory.
+    /// </summary>
+    /// <remarks>
+    /// Received (agent-uploaded) files had no removal path at all: the API could list and download
+    /// them, so anything an agent exfiltrated stayed on the server for good and the Loot page's
+    /// Remove only dropped the row in memory. Same guard as the open path — a bare name only.
+    /// </remarks>
+    public Task<bool> DeleteFileAsync(int campaignId, string fileName)
+    {
+        var safeName = Path.GetFileName(Uri.UnescapeDataString(fileName));
+        if (string.IsNullOrWhiteSpace(safeName) || safeName is "." or "..")
+            return Task.FromResult(false);
+
+        var path = Path.Combine(_filesDirectory, campaignId.ToString(), safeName);
+        if (!File.Exists(path))
+            return Task.FromResult(false);
+
+        File.Delete(path);
+        return Task.FromResult(true);
     }
 }

@@ -1,19 +1,11 @@
-﻿//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ { START OF FILE } ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ //
-#include "Agent.h"
-#include "CommManager.h"
-#include "CheckinModels.h"
-#include "TaskQueueManager.h"
-#include "Task.h"
-#include "Command.h"
-#include <vector>
+// ========================================== { START OF FILE } ========================================== //
+#include "agent/agent.h"
+#include "agent/task/task_queue_manager.h"
+#include "agent/transport/comm_manager.h"
 
-int main(int argc, char *argv[])
-{
-    CommManager commManager = {};
-    TaskQueueManager taskManager = {};
-    Agent agent = { commManager, taskManager };
+int main() {
+    agent::Agent agent{agent::transport::CommManager{}, agent::task::TaskQueueManager{}};
     agent.Start();
     return 0;
 }
-
-//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ { END OF FILE } ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ //
+// ========================================== { END OF FILE } ========================================== //

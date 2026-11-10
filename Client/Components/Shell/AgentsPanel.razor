@@ -62,7 +62,7 @@
                         <td>@agent.arch</td>
                         <td class="@(IsHigh(agent) ? "ts-agents__high" : null)">@agent.integrity</td>
                         <td>@WorkspaceState.FormatAgo(WorkspaceState.SinceLastCheckIn(agent))</td>
-                        <td>@(agent.sleep)s</td>
+                        <td>@FormatSleep(agent.sleep)</td>
                     </tr>
                 }
             }
@@ -112,4 +112,13 @@
         _menuAgent = null;
         Nav.NavigateTo($"loot?agent={agent.agentID}");
     }
+
+    /// <summary>
+    /// The wire value is milliseconds; the column used to render "5000s", i.e. an 83-minute
+    /// interval on an agent checking in every 5 seconds, next to a "last" column that said 0s.
+    /// </summary>
+    private static string FormatSleep(int milliseconds) =>
+        milliseconds >= 1000
+            ? (milliseconds % 1000 == 0 ? $"{milliseconds / 1000}s" : $"{milliseconds / 1000.0:0.#}s")
+            : $"{milliseconds}ms";
 }

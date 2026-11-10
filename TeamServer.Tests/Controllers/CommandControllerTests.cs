@@ -41,13 +41,17 @@ namespace TeamServer.Tests.Controllers
                 Arguements = ""
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to run: whoami",
+                100);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.POWERSHELL,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueuePowerShellCommand(
@@ -55,7 +59,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -122,13 +130,17 @@ namespace TeamServer.Tests.Controllers
                 Command = "whoami"
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to run: whoami",
+                101);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.SHELL,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueShellCommand(
@@ -136,7 +148,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -205,13 +221,17 @@ namespace TeamServer.Tests.Controllers
                 Arguements = "/c whoami"
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to run command as DOMAIN\\user",
+                102);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.RUN_AS,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueRunAsCommand(
@@ -219,7 +239,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -289,13 +313,17 @@ namespace TeamServer.Tests.Controllers
                 Arguements = ""
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to run program: notepad.exe",
+                103);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.RUN,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueRunCommand(
@@ -303,7 +331,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -372,13 +404,17 @@ namespace TeamServer.Tests.Controllers
                 Arguements = "/c whoami"
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to run command under process: 1234",
+                104);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.RUN_U,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueRunUCommand(
@@ -386,7 +422,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -454,13 +494,17 @@ namespace TeamServer.Tests.Controllers
                 PID = 1234
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to kill process: 1234",
+                105);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.KILL_PROCESS,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueKillCommand(
@@ -468,7 +512,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -535,13 +583,17 @@ namespace TeamServer.Tests.Controllers
                 TargetBinary = "test.exe"
             };
 
+            var response = new CommandCreationResponse(
+                "Escalation queued",
+                106);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
-                    TaskType.PROCESS,
+                    TaskType.ESCALATE,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueEscalateCommand(
@@ -549,11 +601,15 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
-                    TaskType.PROCESS,
+                    TaskType.ESCALATE,
                     TaskCode.NO_CODE,
                     dto),
                 Times.Once());
@@ -576,7 +632,7 @@ namespace TeamServer.Tests.Controllers
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
-                    TaskType.PROCESS,
+                    TaskType.ESCALATE,
                     TaskCode.NO_CODE,
                     dto))
                 .ReturnsAsync(error);
@@ -595,7 +651,7 @@ namespace TeamServer.Tests.Controllers
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
-                    TaskType.PROCESS,
+                    TaskType.ESCALATE,
                     TaskCode.NO_CODE,
                     dto),
                 Times.Once());
@@ -617,13 +673,17 @@ namespace TeamServer.Tests.Controllers
                 Arguments = ""
             };
 
+            var response = new CommandCreationResponse(
+                "Assembly queued",
+                107);
+
             _commandServiceMock
-                .Setup(x => x.QueueNetAsmTask(
+                .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.NET_ASM,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueDotNetAsmCommand(
@@ -631,9 +691,13 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
-                x => x.QueueNetAsmTask(
+                x => x.QueueTaskAsync(
                     agentID,
                     TaskType.NET_ASM,
                     TaskCode.NO_CODE,
@@ -656,7 +720,7 @@ namespace TeamServer.Tests.Controllers
             var error = AgentError.NotFound(agentID);
 
             _commandServiceMock
-                .Setup(x => x.QueueNetAsmTask(
+                .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.NET_ASM,
                     TaskCode.NO_CODE,
@@ -675,7 +739,7 @@ namespace TeamServer.Tests.Controllers
             Assert.Equal(error, badRequestResult.Value);
 
             _commandServiceMock.Verify(
-                x => x.QueueNetAsmTask(
+                x => x.QueueTaskAsync(
                     agentID,
                     TaskType.NET_ASM,
                     TaskCode.NO_CODE,
@@ -700,13 +764,17 @@ namespace TeamServer.Tests.Controllers
                 Arguements = ""
             };
 
+            var response = new CommandCreationResponse(
+                "BOF queued",
+                108);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.OBJECT_FILE,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueBofCommand(
@@ -714,7 +782,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -782,11 +854,17 @@ namespace TeamServer.Tests.Controllers
                 Path = "C:\\Temp\\test.txt"
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to download C:\\Temp\\test.txt",
+                109);
+
             _commandServiceMock
-                .Setup(x => x.QueueDownloadTaskAsync(
+                .Setup(x => x.QueueTaskAsync(
                     agentID,
+                    TaskType.DOWNLOAD,
+                    TaskCode.DOWNLOAD,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueFileDownloadCommand(
@@ -794,10 +872,16 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
-                x => x.QueueDownloadTaskAsync(
+                x => x.QueueTaskAsync(
                     agentID,
+                    TaskType.DOWNLOAD,
+                    TaskCode.DOWNLOAD,
                     dto),
                 Times.Once());
         }
@@ -816,8 +900,10 @@ namespace TeamServer.Tests.Controllers
             var error = AgentError.NotFound(agentID);
 
             _commandServiceMock
-                .Setup(x => x.QueueDownloadTaskAsync(
+                .Setup(x => x.QueueTaskAsync(
                     agentID,
+                    TaskType.DOWNLOAD,
+                    TaskCode.DOWNLOAD,
                     dto))
                 .ReturnsAsync(error);
 
@@ -833,8 +919,10 @@ namespace TeamServer.Tests.Controllers
             Assert.Equal(error, badRequestResult.Value);
 
             _commandServiceMock.Verify(
-                x => x.QueueDownloadTaskAsync(
+                x => x.QueueTaskAsync(
                     agentID,
+                    TaskType.DOWNLOAD,
+                    TaskCode.DOWNLOAD,
                     dto),
                 Times.Once());
         }
@@ -854,20 +942,28 @@ namespace TeamServer.Tests.Controllers
                 TaskID = 109
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to cancel download with taskID: 109",
+                110);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
             // Act
             var result = await _controller.QueueCancelFileDownloadCommand(
                 agentID,
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -933,13 +1029,17 @@ namespace TeamServer.Tests.Controllers
                 Path = "C:\\Temp\\upload.txt"
             };
 
+            var response = new CommandCreationResponse(
+                "Upload queued",
+                111);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.UPLOAD,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueUploadCommand(
@@ -947,7 +1047,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -1013,13 +1117,17 @@ namespace TeamServer.Tests.Controllers
                 Path = "C:\\Windows\\System32\\notepad.exe"
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to set spawn to: C:\\Windows\\System32\\notepad.exe",
+                112);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.SPAWN_TO,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueSpawnToCommand(
@@ -1027,7 +1135,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -1097,13 +1209,17 @@ namespace TeamServer.Tests.Controllers
                 }
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to update hosts: System.Collections.Generic.List`1[System.String]",
+                113);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.SET,
                     TaskCode.UPDATE_HOSTS,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueUpdateHostsCommand(
@@ -1111,7 +1227,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -1181,13 +1301,17 @@ namespace TeamServer.Tests.Controllers
                 Jitter = 10
             };
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to sleep for 30s",
+                114);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.PROCESS,
                     TaskCode.SLEEP,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueSetSleepCommand(
@@ -1195,7 +1319,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -1259,13 +1387,17 @@ namespace TeamServer.Tests.Controllers
 
             var dto = new KillAgentDTO();
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to terminate",
+                115);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.KILL,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueKillAgentCommand(
@@ -1273,7 +1405,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,
@@ -1333,13 +1469,17 @@ namespace TeamServer.Tests.Controllers
 
             var dto = new GetUIDDTO();
 
+            var response = new CommandCreationResponse(
+                "Tasked agent to get user ID",
+                116);
+
             _commandServiceMock
                 .Setup(x => x.QueueTaskAsync(
                     agentID,
                     TaskType.GET_UID,
                     TaskCode.NO_CODE,
                     dto))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(response);
 
             // Act
             var result = await _controller.QueueGetUIDCommand(
@@ -1347,7 +1487,11 @@ namespace TeamServer.Tests.Controllers
                 dto);
 
             // Assert
-            Assert.IsType<CreatedResult>(result);
+            var createdResult =
+                Assert.IsType<CreatedAtActionResult>(result);
+
+            Assert.Equal(response, createdResult.Value);
+
             _commandServiceMock.Verify(
                 x => x.QueueTaskAsync(
                     agentID,

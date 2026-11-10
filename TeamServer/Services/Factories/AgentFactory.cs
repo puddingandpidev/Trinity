@@ -17,24 +17,34 @@ namespace TeamServer.Services.Factories
         /// <param name="request">Initial check-in request containing agent metadata such as user, processName, PID, externalIP, internalIP,
         /// and Integrity.</param>
         /// <returns>An Agent populated from the request and default configuration values.</returns>
-        public Agent Create(IntialCheckInRequest request, Payload payload)
+        public Agent Create(
+            IntialCheckInRequest request,
+            string AESKey,
+            int sleep,
+            int jitter,
+            string arch,
+            int payloadID,
+            int listenerID,
+            int campaignID
+        )
         {
             return new Agent
             {
                 Username = request.user,
-                Architecure = Enum.GetName(payload.Arch)!,
-                CampaignID = payload.CampaignID,
+                Architecure = arch,
+                CampaignID = campaignID,
                 ProcesseName = request.processName,
                 ProcessPID = request.PID,
                 CheckInUUID = Guid.NewGuid().ToString(),
-                PayloadID = payload.ID,
+                PayloadID = payloadID,
+                AES256Key = AESKey,
                 LastCheckIn = DateTime.UtcNow,
                 ExternalIP = request.externalIP,
                 InternalIP = request.internalIP,
-                Sleep = payload.Sleep,
-                Jitter = payload.Jitter,
+                Sleep = sleep,
+                Jitter = jitter,
                 Integrity = request.Integrity,
-                ListenerID = payload.ListenerID
+                ListenerID = listenerID
             };
         }
     }

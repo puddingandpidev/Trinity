@@ -4,12 +4,11 @@
 @using MudBlazor
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.SignalR.Client
-@using Client.Interpreter
-@using Client.Services
 @using Trinity.Shared.DTOs.Notification
+@using Client.Services
 @implements IAsyncDisposable
 
-@inject CommandInterpreter Interpreter
+@inject CommandRunner CommandRunner
 @inject IConfiguration Config
 
 <PageTitle>Agent @AgentId — Interact</PageTitle>
@@ -56,17 +55,23 @@
         .WithAutomaticReconnect()
         .Build();
 
+    // The hub pushes a finished task's outcome to the agent's group (server: SuccessStrategy /
+    // ErrorStrategy). The reference client listened for "RecieveTaskOutput", which no hub member
+    // ever sends, and never joined a group — so the port subscribes here and listens for the
+    // member the hub actually sends: "TaskNotification".
     _hubConnection.On<TaskNotification>("TaskNotification", async notification =>
     {
-        _outputs.Add(notification.message);
+        _outputs.Add($"[{notification.Status}] {notification.Message}");
         await InvokeAsync(StateHasChanged);
     });
 
     try
     {
         await _hubConnection.StartAsync();
-        await _hubConnection.InvokeAsync("SubscribeToAgent", AgentId.ToString());
         _outputs.Add("[+] Connected to TeamServer");
+
+        await _hubConnection.InvokeAsync("SubscribeToAgent", AgentId.ToString());
+        _outputs.Add($"[*] Subscribed to agent {AgentId}'s task notifications");
     }
     catch (Exception ex)
     {
@@ -87,35 +92,32 @@
         _sending = true;
         try
         {
-            var result = await Interpreter.Interpret(AgentId, input);
-            _outputs.Add(result.IsSuccess
-                ? $"[+] {result.Response}"
-                : $"[-] {result.Error.Description}");
+            var outcome = await CommandRunner.RunAsync(AgentId, input);
+            _outputs.Add(outcome.Accepted ? $"[*] {outcome.Message}" : $"[-] {outcome.Message}");
+            if (outcome.Output is not null)
+            {
+                foreach (var line in outcome.Output.Split('\n'))
+                {
+                    _outputs.Add(line.TrimEnd('\r'));
+                }
+            }
         }
-        catch (Exception ex) { _outputs.Add($"[!] Error: {ex.Message}"); }
+        catch (Exception ex) { _outputs.Add($"[!] {ex.Message}"); }
         finally
         {
             _sending = false;
             StateHasChanged();
         }
     }
-    
 
     private async Task OnKeyDownAsync(KeyboardEventArgs e)
     {
         if (e.Key == "Enter") await SendCommandAsync();
     }
 
-    public async global::System.Threading.Tasks.ValueTask DisposeAsync()
-{
-    if (_hubConnection is not null)
+    public async ValueTask DisposeAsync()
     {
         if (_hubConnection is not null)
-        {
-            if (_hubConnection.State == HubConnectionState.Connected)
-                await _hubConnection.InvokeAsync("UnsubscribeFromAgent", AgentId.ToString());
             await _hubConnection.DisposeAsync();
-        }
     }
-}
 }

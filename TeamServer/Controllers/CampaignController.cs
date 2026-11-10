@@ -1,49 +1,26 @@
 // ==================================================================== { START OF FILE } ===================================================================== //
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using TeamServer.Repositories;
-using Trinity.Shared.Interfaces;
+using TeamServer.Services;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
+using FluentValidation;
+using TeamServer.Interface;
 
 namespace TeamServer.Controllers
 {
-    [AllowAnonymous]
     [ApiController]
+    [Authorize]
     [Route(Routes.Campaigns)]
     public class CampaignController : ControllerBase
     {
         private readonly ICampaignService _campaignService;
         private readonly IValidator<Campaign> _campaignValidator;
-        private readonly OperatorRepository _operators;
 
-        public CampaignController(ICampaignService campaignService, IValidator<Campaign> campaignValidator, OperatorRepository operators)
+        public CampaignController(ICampaignService campaignService, IValidator<Campaign> campaignValidator)
         {
             _campaignService = campaignService;
             _campaignValidator = campaignValidator;
-            _operators = operators;
-        }
-
-        /// <summary>
-        /// Get campaigns assigned to the authenticated operator
-        /// </summary>
-        [HttpGet("mine")]
-        public async Task<IActionResult> GetMyCampaignsAsync()
-        {
-            var username = User.FindFirstValue(JwtRegisteredClaimNames.Sub)
-                        ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (username is null)
-                return Unauthorized();
-
-            var op = await _operators.GetByUsernameAsync(username);
-            if (op is null)
-                return NotFound();
-
-            var result = await _campaignService.GetCampaignsByOperatorIdAsync(op.ID);
-            return result.IsSuccess ? Ok(result.Response) : BadRequest(result.Error);
         }
 
         /// <summary>
@@ -51,6 +28,7 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet]
+        [ProducesResponseType(typeof(List<Campaign>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetCampaignsAsync()
         {
             var result = await _campaignService.GetCampaignsAsync();
@@ -67,6 +45,7 @@ namespace TeamServer.Controllers
         /// <param name="campaignID"></param>
         /// <returns></returns>
         [HttpGet("{campaignID}")]
+        [ProducesResponseType(typeof(Campaign), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetCampaignByIdAsync(int campaignID)
         {
             var result = await _campaignService.GetCampaignByIdAsync(campaignID);
@@ -82,6 +61,7 @@ namespace TeamServer.Controllers
         /// <param name="campaign"></param>
         /// <returns></returns>
         [HttpPost]
+        [ProducesResponseType(StatusCodes.Status201Created)]
         public async Task<IActionResult> CreateCampaignAsync([FromBody] Campaign campaign)
         {
             var validationResult = await _campaignValidator.ValidateAsync(campaign);
@@ -105,6 +85,7 @@ namespace TeamServer.Controllers
         /// <param name="campaign"></param>
         /// <returns></returns>
         [HttpPut("{campaignID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdateCampaignAsync(int campaignID, [FromBody] Campaign campaign)
         {
             campaign.ID = campaignID; // Ensure the campaign ID is set correctly
@@ -128,6 +109,7 @@ namespace TeamServer.Controllers
         /// <param name="campaignID"></param>
         /// <returns></returns>
         [HttpDelete("{campaignID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> DeleteCampaignAsync(int campaignID)
         {
             var result = await _campaignService.DeleteCampaignAsync(campaignID);
@@ -143,6 +125,7 @@ namespace TeamServer.Controllers
         /// <param name="campaignID"></param>
         /// <returns></returns>
         [HttpGet("{campaignID}/operators")]
+        [ProducesResponseType(typeof(List<OperatorSummary>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetOperatorsByCampaignIdAsync(int campaignID)
         {
             var result = await _campaignService.GetOperatorsByCampaignIdAsync(campaignID);
@@ -150,7 +133,9 @@ namespace TeamServer.Controllers
             {
                 return NotFound(result.Error);
             }
-            return Ok(result.Response);
+
+            // Same model as the operator list: response-side projection, never the entity.
+            return Ok(result.Response.Select(o => new OperatorSummary(o.ID, o.Username, o.LastLogin)));
         }
         /// <summary>
         /// Assign an operator to a specific campaign by ID
@@ -159,6 +144,7 @@ namespace TeamServer.Controllers
         /// <param name="operatorID"></param>
         /// <returns></returns>
         [HttpPost("{campaignID}/operators/{operatorID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> AssignOperatorToCampaignAsync(int operatorID, int campaignID)
         {
             var result = await _campaignService.AssignOperatorToCampaignAsync(operatorID, campaignID);
@@ -175,6 +161,7 @@ namespace TeamServer.Controllers
         /// <param name="operatorID"></param>
         /// <returns></returns>
         [HttpDelete("{campaignID}/operators/{operatorID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> UnassignOperatorFromCampaignAsync(int operatorID, int campaignID)
         {
             var result = await _campaignService.RemoveOperatorFromCampaignAsync(operatorID, campaignID);

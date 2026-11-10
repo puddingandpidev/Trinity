@@ -5,6 +5,7 @@ using System.Text.Json;
 using Client.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.JSInterop;
 using Trinity.Shared.DTOs.Agent;
 using Trinity.Shared.DTOs.Task;
 
@@ -22,7 +23,6 @@ public partial class Clients
         public string User = "";
         public bool IsNew;
         public int AgentId;
-        public bool IsSample;
     }
 
     private record Event(string When, string Text, string Color);
@@ -49,7 +49,7 @@ public partial class Clients
     private AgentApiClient AgentApiClient { get; set; } = default!;
 
     [Inject]
-    private TaskApiService TaskApiClient { get; set; } = default!;
+    private TaskApiClient TaskApiClient { get; set; } = default!;
 
     [Inject]
     private TeamServerConnection Connection { get; set; } = default!;
@@ -59,6 +59,9 @@ public partial class Clients
 
     [Inject]
     private CommandApiClient CommandApiClient { get; set; } = default!;
+
+    [Inject]
+    private IJSRuntime JS { get; set; } = default!;
 
     private void GoToLogin() => Navigation.NavigateTo("/login");
 
@@ -72,26 +75,54 @@ public partial class Clients
     private int _jobTargetId;
     private bool _jobImmediate = true;
 
-    private record JobDef(string Name);
-    private static readonly JobDef[] _jobCatalogue =
+    // jobs list: name on screen -> command sent to the server
+    // Only the commands the agent's dispatcher actually implements (command_dispatcher.cpp).
+    // The rest were accepted by the TeamServer and then answered "Unsupported task type" from the
+    // guest: SET/* (sleep, spawn-to, update-hosts) and PROCESS/RUN|RUN_AS have no handler, BOF has
+    // no OBJECT_FILE handler, and Set Sleep/BOF also fail server validation (Jitter/BofPath).
+    private static readonly (string Name, string Path)[] _jobCatalogue =
     {
-    new("Get UID"),
-    new("Set Sleep"),
-    new("Shell Command"),
-    new("PowerShell"),
-};
-
-    private string? JobLabel1 => _jobName switch
-    {
-        "Set Sleep" => "Sleep (ms)",
-        "Shell Command" => "Command",
-        "PowerShell" => "Commandlet",
-        _ => null
+        ("Get UID",          "execute/getuid"),
+        ("Set Sleep",        "set/sleep"),
+        ("Shell Command",    "spawn/shell"),
+        ("PowerShell",       "spawn/powershell"),
+        ("Run",              "spawn/run"),
+        ("Run U",            "spawn/runu"),
+        ("Kill Process",     "execute/killprocess"),
+        ("Escalate (UAC)",   "execute/escalate"),
+        (".NET Assembly",    "execute/dotnetassembly"),
+        ("Download to Target", "execute/filedownload"),
+        ("Upload from Target", "execute/upload"),
+        ("Update Hosts",     "set/updatehosts"),
+        ("Kill Agent",       "execute/kill"),
     };
-    private string? JobLabel2 => null;
-    private string? JobLabel3 => null;
+
+    // which input boxes each job shows (null = hidden)
+    private static (string?, string?, string?) JobLabels(string job) => job switch
+    {
+        "Set Sleep"       => ("Sleep (ms)", "Jitter (%)", null),
+        "Shell Command"   => ("Command", null, null),
+        "PowerShell"      => ("Cmdlet", "Arguments", null),
+        "Run"             => ("Program", "Arguments", null),
+        "Run U"           => ("PID", "Command", "Arguments"),
+        "Kill Process"    => ("PID", null, null),
+        "Escalate (UAC)"  => ("Registry key", "Target binary", null),
+        ".NET Assembly"   => ("Assembly path on the server (e.g. /app/Payloads/x.exe)", "Arguments", null),
+        // Direction matters and the old single-word labels hid it: DOWNLOAD stages a campaign file
+        // ON the target, UPLOAD exfiltrates a file FROM it. An operator reading "File Download"
+        // reasonably expects the second, which is how a correct error looked like a broken product.
+        "Download to Target" => ("Remote path (staged from the campaign store)", null, null),
+        "Upload from Target" => ("Remote path (sent to the campaign store)", null, null),
+        "Update Hosts"    => ("Hosts (comma-separated)", null, null),
+        _ => (null, null, null), // these job's dont need any input
+    };
+
+    private string? JobLabel1 => JobLabels(_jobName).Item1;
+    private string? JobLabel2 => JobLabels(_jobName).Item2;
+    private string? JobLabel3 => JobLabels(_jobName).Item3;
     private string _shellInput = "";
-    private readonly List<string> _shellLog = new() { "Trinity remote shell (mock). Type a command and press Run." };
+    private bool _shellBusy;
+    private readonly List<string> _shellLog = new() { "Trinity remote shell — commands are queued on the selected client." };
 
     protected override async Task OnInitializedAsync() => await RefreshDataAsync();
 
@@ -120,15 +151,15 @@ public partial class Clients
         }
         catch (HttpRequestException exception)
         {
-            _loadError = $"Could not load agents from TeamServer: {exception.Message}";
+            _loadError = ServerDown.Is(exception) ? ServerDown.Message : $"Could not load agents from TeamServer: {exception.Message}";
         }
         catch (TaskCanceledException exception)
         {
-            _loadError = $"The TeamServer agent request timed out: {exception.Message}";
+            _loadError = ServerDown.Is(exception) ? ServerDown.Message : $"The TeamServer agent request timed out: {exception.Message}";
         }
         catch (JsonException exception)
         {
-            _loadError = $"TeamServer returned an invalid agent response: {exception.Message}";
+            _loadError = ServerDown.Is(exception) ? ServerDown.Message : $"TeamServer returned an invalid agent response: {exception.Message}";
         }
         finally
         {
@@ -138,19 +169,24 @@ public partial class Clients
 
     private static ClientRow ToClientRow(AgentResponse agent)
     {
-        var isSample = agent.username.StartsWith("sample-user-", StringComparison.OrdinalIgnoreCase)
-            && agent.externalIP.StartsWith("203.0.113.", StringComparison.Ordinal);
         return new ClientRow
         {
-            Name = isSample ? $"SAMPLE-CLIENT-{agent.agentID:000}" : $"CLIENT-{agent.agentID:000}",
+            Name = $"CLIENT-{agent.agentID:000}",
             Ip = agent.externalIP,
             Os = agent.arch,
-            Status = "Unknown",
+            Status = ComputeStatus(agent.lastCheckIn, agent.sleep),
             LastSeen = agent.lastCheckIn.ToLocalTime().ToString("g"),
             User = agent.username,
-            AgentId = agent.agentID,
-            IsSample = isSample
+            AgentId = agent.agentID
         };
+    }
+
+    // online = checked in recently (within about 2.5 sleep cycle's)
+    private static string ComputeStatus(DateTime lastCheckIn, int sleep)
+    {
+        var window = TimeSpan.FromSeconds(Math.Max(sleep, 60) * 2.5);
+        var age = DateTime.UtcNow - lastCheckIn.ToUniversalTime();
+        return age <= window ? "Online" : "Offline";
     }
 
     private async Task LoadTasksAsync()
@@ -159,13 +195,13 @@ public partial class Clients
         _timeline.Clear();
         try
         {
-            var tasks = await TaskApiClient.GetAllTasksAsync();
+            var tasks = await TaskApiClient.GetTasksAsync();
             var names = _clients.ToDictionary(client => client.AgentId, client => client.Name);
-            _timeline.AddRange(tasks.OrderByDescending(task => task.CreatedAt).Take(20)
+            _timeline.AddRange(tasks.OrderByDescending(task => task.timeStamp).Take(20)
                 .Select(task => new Event(
-                    task.CreatedAt.ToLocalTime().ToString("g"),
-                    $"{names.GetValueOrDefault(task.AgentID, $"Agent {task.AgentID}")} · {task.CommandType} · {task.Status}",
-                    task.Status.ToString().Equals("Failure", StringComparison.OrdinalIgnoreCase) ? "red" : "green")));
+                    task.timeStamp.ToLocalTime().ToString("g"),
+                    $"{names.GetValueOrDefault(task.agentID, $"Agent {task.agentID}")} · {task.commandType} · {task.status}",
+                    TaskStatuses.IsFailed(task.status) ? "red" : "green")));
         }
         catch (InvalidOperationException exception)
         {
@@ -173,15 +209,15 @@ public partial class Clients
         }
         catch (HttpRequestException exception)
         {
-            _taskLoadError = $"Could not load task history from TeamServer: {exception.Message}";
+            _taskLoadError = ServerDown.Is(exception) ? ServerDown.Message : $"Could not load task history from TeamServer: {exception.Message}";
         }
         catch (TaskCanceledException exception)
         {
-            _taskLoadError = $"The TeamServer task request timed out: {exception.Message}";
+            _taskLoadError = ServerDown.Is(exception) ? ServerDown.Message : $"The TeamServer task request timed out: {exception.Message}";
         }
         catch (JsonException exception)
         {
-            _taskLoadError = $"TeamServer returned an invalid task response: {exception.Message}";
+            _taskLoadError = ServerDown.Is(exception) ? ServerDown.Message : $"TeamServer returned an invalid task response: {exception.Message}";
         }
     }
 
@@ -194,7 +230,6 @@ public partial class Clients
         && (_osFilter == "All Architectures" || c.Os.StartsWith(_osFilter, StringComparison.OrdinalIgnoreCase)));
 
     private int FilteredCount => Filtered.Count();
-    private int SampleCount => _clients.Count(client => client.IsSample);
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)PageSize));
     private int CurrentPage => Math.Clamp(_page, 1, TotalPages);
     private IEnumerable<ClientRow> PageItems => Filtered.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
@@ -216,28 +251,37 @@ public partial class Clients
     private void GoToPage(int p) => _page = Math.Clamp(p, 1, TotalPages);
     private void SelectRow(ClientRow row) => _selected = row == _selected ? null : row;
 
+    // A row is a control: Enter/Space must do what a click does, or an operator without a
+    // mouse cannot reach Execute Job, Remote Shell or any other row action.
+    private void RowKey(KeyboardEventArgs e, ClientRow row)
+    {
+        if (e.Key is "Enter" or " " or "Spacebar")
+        {
+            SelectRow(row);
+        }
+    }
+
     private static string StatusColor(string status) => status switch
     {
-        "Unknown" => "gray",
+        "Online" => "green",
+        "Offline" => "gray",
         _ => "gray",
     };
 
     private List<StatVm> BuildStats()
     {
         int total = _clients.Count;
+        int online = _clients.Count(client => client.Status == "Online");
+        int offline = total - online;
 
         return new List<StatVm>
         {
             new("Total Clients",   total.ToString(),    "From TeamServer", true,
                 "<circle cx='12' cy='8' r='4.5'/><path d='M4 21v-1a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7v1'/>"),
-            new("Online Clients",  "Not provided",   "TeamServer has no online status", true,
+            new("Online Clients",  online.ToString(),   "Checked in recently", true,
                 "<rect x='2' y='3' width='20' height='14' rx='2'/><line x1='8' y1='21' x2='16' y2='21'/><line x1='12' y1='17' x2='12' y2='21'/>"),
-            new("Offline Clients", "Not provided",  "TeamServer has no online status", false,
+            new("Offline Clients", offline.ToString(),  "No recent check-in", false,
                 "<rect x='2' y='3' width='20' height='14' rx='2'/><line x1='8' y1='21' x2='16' y2='21'/><line x1='12' y1='17' x2='12' y2='21'/><circle cx='19.5' cy='4.5' r='2.6' fill='#E5484D' stroke='#1C1C1F' stroke-width='1.6'/>"),
-            new("New Clients",     "Not provided",       "TeamServer does not provide this count", true,
-                "<circle cx='10' cy='7' r='4'/><path d='M3 21v-1a6 6 0 0 1 6-6h2'/><line x1='19' y1='11' x2='19' y2='17'/><line x1='16' y1='14' x2='22' y2='14'/>"),
-            new("Inactive Clients","Not provided", "TeamServer does not provide this count", false,
-                "<circle cx='10' cy='7' r='4'/><path d='M3 21v-1a6 6 0 0 1 6-6h3'/><circle cx='18' cy='16' r='4.5'/><path d='M18 14v2l1.3 1'/>"),
         };
     }
 
@@ -265,11 +309,8 @@ public partial class Clients
     {
         var colorVar = new Dictionary<string, string>
         {
-            ["green"] = "var(--status-green)",
-            ["blue"] = "var(--status-blue)",
-            ["yellow"] = "var(--status-yellow)",
-            ["red"] = "var(--status-red)",
-            ["gray"] = "var(--text-muted)"
+            ["green"] = "var(--status-green)", ["blue"] = "var(--status-blue)",
+            ["yellow"] = "var(--status-yellow)", ["red"] = "var(--status-red)", ["gray"] = "var(--text-muted)"
         };
         int total = Math.Max(1, _clients.Count);
         var sb = new StringBuilder();
@@ -352,8 +393,48 @@ public partial class Clients
         _jobTargetId = _selected?.AgentId ?? _clients[0].AgentId;
         _jobName = "Get UID";
         _jobArg = "";
+        _jobArg2 = "";
+        _jobArg3 = "";
         _jobImmediate = true;
         _showExecute = true;
+    }
+
+    // build what gets sent for the chosen job
+    private object BuildJobBody()
+    {
+        int ParseInt(string s, int fallback = 0) => int.TryParse(s, out var v) ? v : fallback;
+
+        return _jobName switch
+        {
+            "Get UID"         => new { },
+            "Kill Agent"      => new { },
+            "Set Sleep"       => new { Sleep = ParseInt(_jobArg, 5000), Jitter = ParseInt(_jobArg2, 10) },
+            "Shell Command"   => new { Command = _jobArg },
+            "PowerShell"      => new { Commandlet = _jobArg, Arguements = _jobArg2 },
+            "Run"             => new { Program = _jobArg, Arguements = _jobArg2 },
+            "Run As"          => BuildRunAsBody(),
+            "Run U"           => new { PID = ParseInt(_jobArg), Command = _jobArg2, Arguements = _jobArg3 },
+            "Kill Process"    => new { PID = ParseInt(_jobArg) },
+            "Escalate (UAC)"  => new { RegKey = _jobArg, TargetBinary = _jobArg2 },
+            // The DTO field is AssemblyPath (a path the *server* resolves and base64-encodes); sending
+            // "Assembly" left it empty, so every .NET Assembly job failed before reaching the agent.
+            ".NET Assembly"   => new { AssemblyPath = _jobArg, Arguments = _jobArg2 },
+            "BOF"             => new { Bof = _jobArg, Entrypoint = _jobArg2, Arguements = _jobArg3 },
+            "Download to Target" => new { Path = _jobArg },
+            "Cancel Download" => new { TaskID = _jobArg },
+            "Upload from Target" => new { Path = _jobArg },
+            "Spawn To"        => new { Path = _jobArg },
+            "Update Hosts"    => new { Hosts = _jobArg.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList() },
+            _ => new { },
+        };
+    }
+
+    // Run As: split DOMAIN\user (domain defaults to ".")
+    private object BuildRunAsBody()
+    {
+        var parts = _jobArg.Split('\\', 2);
+        var (domain, user) = parts.Length == 2 ? (parts[0], parts[1]) : (".", _jobArg);
+        return new { Domain = domain, User = user, Command = _jobArg2, Arguements = _jobArg3 };
     }
 
     private async Task RunJob()
@@ -367,26 +448,26 @@ public partial class Clients
             return;
         }
 
+        var pathSuffix = _jobCatalogue.FirstOrDefault(job => job.Name == _jobName).Path;
+        if (string.IsNullOrEmpty(pathSuffix))
+        {
+            ShowToast($"Unknown job \"{_jobName}\".");
+            return;
+        }
+
         try
         {
-            var queued = _jobName switch
-            {
-                "Get UID" => await CommandApiClient.QueueCommandAsync(agentId, "execute/getuid", new { }),
-                "Set Sleep" => await CommandApiClient.QueueCommandAsync(agentId, "execute/setsleep", new { Sleep = int.TryParse(_jobArg, out var sleep) ? sleep : 5000 }),
-                "Shell Command" => await CommandApiClient.QueueCommandAsync(agentId, "spawn/shell", new { Command = _jobArg }),
-                "PowerShell" => await CommandApiClient.QueueCommandAsync(agentId, "spawn/powershell", new { Commandlet = _jobArg, Arguements = "" }),
-                _ => false,
-            };
+            var queued = await CommandApiClient.QueueCommandAsync(agentId, pathSuffix, BuildJobBody());
 
-            if (queued)
+            if (queued.Accepted)
             {
-                AddTimeline($"{targetName} · queued {_jobName}", "green");
+                AddTimeline($"{targetName} · queued {_jobName} (task {queued.TaskId})", "green");
                 ShowToast($"Queued \"{_jobName}\" on {targetName}");
                 _showExecute = false;
             }
             else
             {
-                ShowToast($"TeamServer rejected the {_jobName} command.");
+                ShowToast(queued.Error ?? $"TeamServer rejected the {_jobName} command.");
             }
         }
         catch (InvalidOperationException exception)
@@ -395,7 +476,7 @@ public partial class Clients
         }
         catch (HttpRequestException exception)
         {
-            ShowToast($"Could not reach the TeamServer: {exception.Message}");
+            ShowToast(ServerDown.Is(exception) ? ServerDown.Message : $"Could not reach the TeamServer: {exception.Message}");
         }
     }
 
@@ -413,28 +494,72 @@ public partial class Clients
         _showShell = true;
     }
 
-    private void ShellKey(KeyboardEventArgs e)
+    private async Task ShellKey(KeyboardEventArgs e)
     {
-        if (e.Key == "Enter") RunShell();
+        if (e.Key == "Enter")
+        {
+            await RunShell();
+        }
     }
 
-    private void RunShell()
+    private async Task RunShell()
     {
         var cmd = _shellInput.Trim();
-        if (cmd.Length == 0) return;
-        _shellLog.Add($"> {cmd}");
-        _shellLog.Add(MockShellResponse(cmd));
-        _shellInput = "";
-    }
+        if (cmd.Length == 0 || _shellBusy) return;
 
-    private string MockShellResponse(string cmd) => cmd.ToLowerInvariant() switch
-    {
-        "whoami" => $"{_selected?.User ?? "operator"} (mock)",
-        "hostname" => _selected?.Name ?? "unknown",
-        "ipconfig" or "ifconfig" => _selected?.Ip ?? "0.0.0.0",
-        "ls" or "dir" => "Documents  Downloads  report.pdf  config.json",
-        _ => $"'{cmd}' executed (mock) — no real command was run",
-    };
+        if (_selected is null)
+        {
+            ShowToast("Select a client in the table first");
+            return;
+        }
+
+        _shellLog.Add($"> {cmd}");
+        _shellInput = "";
+        _shellBusy = true;
+
+        try
+        {
+            var queued = await CommandApiClient.QueueCommandAsync(_selected.AgentId, "spawn/shell", new { Command = cmd });
+            if (!queued.Accepted)
+            {
+                _shellLog.Add(queued.Error ?? "The team server refused the command.");
+                return;
+            }
+
+            var taskId = queued.TaskId;
+            _shellLog.Add($"queued as task {taskId}; waiting for the agent's check-in…");
+
+            // The agent reports the result on a later check-in, so poll the task until it is terminal.
+            for (var attempt = 0; attempt < 20; attempt++)
+            {
+                await Task.Delay(1500);
+                var detail = await TaskApiClient.GetTaskDetailAsync(taskId);
+                if (detail is null)
+                {
+                    continue;
+                }
+
+                var kind = TaskStatuses.Kind(detail.status);
+                if (kind is TaskStatusKind.Success or TaskStatusKind.Failed)
+                {
+                    _shellLog.Add(string.IsNullOrWhiteSpace(detail.result) ? (detail.error ?? detail.status) : detail.result!);
+                    AddTimeline($"{_selected.Name} · SHELL · {detail.status}", kind == TaskStatusKind.Success ? "green" : "red");
+                    return;
+                }
+            }
+
+            _shellLog.Add($"task {taskId} has not reported back yet; check Tasks for the result.");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException or System.Text.Json.JsonException)
+        {
+            _shellLog.Add(ServerDown.Is(exception) ? ServerDown.Message : $"The command could not be sent: {exception.Message}");
+        }
+        finally
+        {
+            _shellBusy = false;
+            StateHasChanged();
+        }
+    }
 
     private void ClearFilters()
     {
@@ -445,9 +570,37 @@ public partial class Clients
         ShowToast("Showing all clients");
     }
 
-    private void ExportClients()
+    private async Task ExportClients()
     {
-        ShowToast($"Exported {FilteredCount} clients to CSV (mock)");
+        if (FilteredCount == 0) { ShowToast("No clients to export."); return; }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Name,IP Address,Architecture,Status,Last Seen,User");
+        foreach (var c in Filtered)
+        {
+            sb.AppendLine(string.Join(",", new[] { c.Name, c.Ip, c.Os, c.Status, c.LastSeen, c.User }.Select(CsvField)));
+        }
+
+        try
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/clients.js");
+            await module.InvokeVoidAsync("downloadCsv", $"trinity-clients-{DateTime.Now:yyyyMMdd-HHmmss}.csv", sb.ToString());
+            ShowToast($"Exported {FilteredCount} clients to CSV.");
+        }
+        catch (JSException exception)
+        {
+            ShowToast($"CSV export failed: {exception.Message}");
+        }
+    }
+
+    // wrap CSV values that has commas, quotes or new lines
+    private static string CsvField(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+        {
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     private void AddTimeline(string text, string color) => _timeline.Insert(0, new Event("just now", text, color));
@@ -472,7 +625,8 @@ public partial class Clients
 
     private readonly List<(double X, double Y)> LandDots = new();
 
-    //chat generate for testying
+
+    // rough continent shapes for the map
     private static readonly (double Cx, double Cy, double Rx, double Ry)[] _continents =
     {
         (22, 15, 12, 9),

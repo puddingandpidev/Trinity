@@ -56,6 +56,13 @@ namespace TeamServer.Repositories
                 return false; // Admin not found
             }
 
+            if (string.IsNullOrEmpty(adminEntity.Password))
+            {
+                // An empty password means "unchanged": the API stopped returning the stored value,
+                // so an edit form that does not set one must not overwrite the credential.
+                adminEntity.Password = existingAdmin.Password;
+            }
+
             _context.Entry(existingAdmin).CurrentValues.SetValues(adminEntity);
 
             return true; // Update successful

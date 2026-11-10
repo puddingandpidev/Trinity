@@ -1,0 +1,7 @@
+# Point clangd at the MinGW cross-compile database. Without this, clangd
+# finds no compile_commands.json (the build dir is not an ancestor of src/)
+# and falls back to host defaults — c++17, no MinGW target headers.
+# The Clang/LLD preset is the default payload toolchain, so point clangd at its
+# database; configuring another preset does not refresh this one.
+CompileFlags:
+  CompilationDatabase: out/build/mingw-clang-x86_64

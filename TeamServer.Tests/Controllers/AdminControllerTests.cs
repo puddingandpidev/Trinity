@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using TeamServer.Controllers;
 using TeamServer.Interface;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
 using Trinity.Shared.Results;
 using Xunit;
@@ -55,7 +56,9 @@ namespace TeamServer.Tests.Controllers
 
             var okResult = Assert.IsType<OkObjectResult>(result);
 
-            Assert.Same(admins, okResult.Value);
+            var summaries = Assert.IsAssignableFrom<IEnumerable<AdminSummary>>(okResult.Value).ToList();
+            Assert.Equal(admins.Select(a => a.ID), summaries.Select(a => a.ID));
+            Assert.Equal(admins.Select(a => a.Username), summaries.Select(a => a.Username));
 
             _adminServiceMock.Verify(
                 x => x.GetAdminsAsync(),
@@ -109,7 +112,9 @@ namespace TeamServer.Tests.Controllers
 
             var okResult = Assert.IsType<OkObjectResult>(result);
 
-            Assert.Same(admin, okResult.Value);
+            var summary = Assert.IsType<AdminSummary>(okResult.Value);
+            Assert.Equal(admin.ID, summary.ID);
+            Assert.Equal(admin.Username, summary.Username);
 
             _adminServiceMock.Verify(
                 x => x.GetAdminByIdAsync(adminID),
