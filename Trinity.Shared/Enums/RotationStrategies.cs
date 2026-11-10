@@ -1,10 +1,20 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using System;
+using System.Collections.Generic;
+using System.Runtime.Serialization;
+using System.Text;
+
 namespace Trinity.Shared.Enums
 {
-    public enum RotationStrategy
+    [DataContract]
+    public enum RotationStrategies
     {
-        ROUND_ROBIN,
-        RANDOM
+        [EnumMember(Value = "Round Robin")]
+        RoundRobin,
+        [EnumMember(Value = "Random")]
+        Random,
+        [EnumMember(Value = "Rotate on Failure")]
+        Failover
     }
 }
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ END OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//

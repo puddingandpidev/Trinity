@@ -1,0 +1,43 @@
+@page "/reports"
+@layout MainLayout
+@using MudBlazor
+@inject NavigationManager Nav
+
+<PageTitle>Trinity · Reports</PageTitle>
+
+<style>
+    .report-card {
+        background-color: #242424;
+        border: 1px solid #333;
+        padding: 24px;
+        max-width: 720px;
+    }
+    .report-muted { color: #8A8A92; }
+</style>
+
+<MudText Typo="Typo.h5" Style="color:white; font-weight:700; margin-bottom:4px;">Reports</MudText>
+<MudText Typo="Typo.body2" Class="report-muted" Style="margin-bottom:24px;">
+    Reporting is not available in this build.
+</MudText>
+
+<MudPaper Class="report-card" Elevation="0">
+    <MudText Typo="Typo.subtitle1" Style="color:white; font-weight:600; margin-bottom:8px;">
+        Nothing to show, and nothing pretending otherwise
+    </MudText>
+    <MudText Typo="Typo.body2" Class="report-muted" Style="margin-bottom:16px;">
+        The TeamServer exposes no reports endpoint: there is no model, no controller and no stored
+        report to list. Earlier versions of this page showed four zeroed counters and a Generate
+        button that closed without generating anything, which is why it has been replaced.
+    </MudText>
+    <MudText Typo="Typo.body2" Class="report-muted" Style="margin-bottom:20px;">
+        What does exist today: the task history, with a CSV export, and the live event log.
+    </MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Style="text-transform:none;"
+               OnClick="@(() => Nav.NavigateTo("tasks"))">
+        Open Tasks (CSV export)
+    </MudButton>
+    <MudButton Variant="Variant.Text" Style="text-transform:none; margin-left:8px;"
+               OnClick="@(() => Nav.NavigateTo("logs"))">
+        Open Event Log
+    </MudButton>
+</MudPaper>

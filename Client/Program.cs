@@ -1,16 +1,23 @@
-using System.Text.Json;
+using System.IO;
 using Client.Components;
-using Client.Interpreter;
-using Client.Interpreter.Strategies;
 using Client.Services;
+using Microsoft.AspNetCore.DataProtection;
 using MudBlazor.Services;
-using Refit;
 using Trinity.Shared.Interfaces;
 
 namespace Client
 {
     public class Program
     {
+        /// <summary>
+        /// Where the data protection key ring lives. The container sets <c>DataProtection:KeysPath</c>
+        /// to /app/keys (a volume); a host-side run defaults to a directory under the content root, so
+        /// <c>dotnet run</c> works outside Docker instead of dying on a path that only exists there.
+        /// </summary>
+        private static string KeysDirectory(IConfiguration configuration) =>
+            configuration["DataProtection:KeysPath"]
+            ?? Path.Combine(AppContext.BaseDirectory, "keys");
+
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
@@ -22,91 +29,43 @@ namespace Client
             // Registers MudBlazor Components
             builder.Services.AddMudServices();
 
-            // Runtime-configured TeamServer connection (used by old API client wrappers).
+            // Runtime-configured TeamServer connection + typed API clients (DTO-based).
+            // Every call carries the JWT issued at login (AuthorizationMessageHandler).
             builder.Services.AddScoped<TeamServerConnection>();
+            builder.Services.AddScoped<AuthTokenStore>();
+            // Protected session storage (sign-in and bearer token) is encrypted with the data
+            // protection key ring. Persist it, otherwise every container restart invalidates the
+            // browser's stored values and the operator is silently signed out.
+            builder.Services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(KeysDirectory(builder.Configuration)))
+                .SetApplicationName("Trinity.Client");
+            // Every authenticated call goes through AuthorizedHttp: an IHttpClientFactory message
+            // handler cannot see the circuit's scoped AuthTokenStore (handlers come from the root
+            // provider), which made every page load after sign-in answer 401.
+            builder.Services.AddScoped<AuthorizedHttp>();
 
-            // Scoped per Blazor circuit — attaches Bearer token to every outgoing request.
-            builder.Services.AddScoped<AuthTokenHandler>();
-
-            var teamServerUrl = builder.Configuration["TeamServer:BaseUrl"]!;
-
-            // Named client used by admin pages (Operators.razor, Admin.razor, CreateOperatorDialog.razor)
-            // via IHttpClientFactory.CreateClient("TeamServer"). Those pages hit [AllowAnonymous] endpoints
-            // so no Bearer token is required here.
-            builder.Services.AddHttpClient("TeamServer", c => c.BaseAddress = new Uri(teamServerUrl));
-
-            var refitSettings = new RefitSettings
-            {
-                ContentSerializer = new SystemTextJsonContentSerializer(
-                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })
-            };
-
-            // Refit typed HTTP clients — all scoped, all share the circuit's AuthTokenHandler.
-            // Using RestService.For<T> (not IHttpClientFactory) so the scoped handler is
-            // resolved from the correct Blazor circuit scope, not the root DI container.
-            TApi MakeRefit<TApi>(IServiceProvider sp)
-            {
-                var handler = sp.GetRequiredService<AuthTokenHandler>();
-                var client  = new HttpClient(handler, disposeHandler: false)
-                              { BaseAddress = new Uri(teamServerUrl) };
-                return RestService.For<TApi>(client, refitSettings);
-            }
-
-            builder.Services.AddScoped(MakeRefit<ICommandAPI>);
-            builder.Services.AddScoped(MakeRefit<IAgentAPI>);
-            builder.Services.AddScoped(MakeRefit<IListenerAPI>);
-            builder.Services.AddScoped(MakeRefit<ICampaignAPI>);
-            builder.Services.AddScoped(MakeRefit<IOperatorAPI>);
-            builder.Services.AddScoped(MakeRefit<IAdminAPI>);
-            builder.Services.AddScoped(MakeRefit<IPayloadAPI>);
-            builder.Services.AddScoped(MakeRefit<IAuthAPI>);
-            builder.Services.AddScoped(MakeRefit<IServerAPI>);
-            builder.Services.AddScoped(MakeRefit<ITaskAPI>);
-            builder.Services.AddScoped(MakeRefit<IArmouryAPI>);
-            builder.Services.AddScoped(MakeRefit<IFilesAPI>);
-
-            // Thin wrappers that pages inject directly (internally use Refit interfaces)
             builder.Services.AddScoped<AgentApiClient>();
+            builder.Services.AddScoped<TaskApiClient>();
             builder.Services.AddScoped<AuthApiClient>();
             builder.Services.AddScoped<ListenerApiClient>();
             builder.Services.AddScoped<CommandApiClient>();
-            builder.Services.AddScoped<ServerApiClient>();
             builder.Services.AddScoped<FilesApiClient>();
+            builder.Services.AddScoped<CommandRunner>();
+            builder.Services.AddScoped<ServerApiClient>();
+
+            // Named TeamServer HttpClient (fixed BaseUrl from appsettings).
+            builder
+                .Services.AddHttpClient("TeamServer", client =>
+                {
+                    client.BaseAddress = new Uri(builder.Configuration["TeamServer:BaseUrl"]!);
+                });
 
             // App Services
-            builder.Services.AddScoped<EventLogService>();
-            builder.Services.AddScoped<AuthService>();
-            builder.Services.AddScoped<AgentService>();
-            builder.Services.AddScoped<ListenerService>();
             builder.Services.AddScoped<CampaignService>();
             builder.Services.AddScoped<OperatorService>();
             builder.Services.AddScoped<AdminService>();
             builder.Services.AddScoped<PayloadService>();
-            builder.Services.AddScoped<TaskApiService>();
-            builder.Services.AddScoped<ArmouryService>();
-            builder.Services.AddScoped<CommandInterpreter>();
-            builder.Services.AddScoped<PowerShellService>();
 
-            builder.Services.AddScoped<ICommandInterpreter, CommandInterpreter>();
-            builder.Services.AddScoped<PowerShellStrategy>();
-            builder.Services.AddScoped<ShellStrategy>();
-            builder.Services.AddScoped<RunAsStrategy>();
-            builder.Services.AddScoped<RunStrategy>();
-            builder.Services.AddScoped<RunUStrategy>();
-            builder.Services.AddScoped<KillProcessStrategy>();
-            builder.Services.AddScoped<EscalateStrategy>();
-            builder.Services.AddScoped<DotNetAsmStrategy>();
-            builder.Services.AddScoped<DownloadStrategy>();
-            builder.Services.AddScoped<CancelDownloadStrategy>();
-            builder.Services.AddScoped<UploadStrategy>();
-            builder.Services.AddScoped<SpawnToStrategy>();
-            builder.Services.AddScoped<UpdateHostsStrategy>();
-            builder.Services.AddScoped<KillStrategy>();
-            builder.Services.AddScoped<GetUIDStrategy>();
-            builder.Services.AddScoped<KeyloggerStrategy>();
-            builder.Services.AddScoped<PersistStrategy>();
-            builder.Services.AddScoped<SetSleepStrategy>();
-            builder.Services.AddScoped<HelpStrategy>();
 
             var app = builder.Build(); // <- Build happens here, after all services are registered
 

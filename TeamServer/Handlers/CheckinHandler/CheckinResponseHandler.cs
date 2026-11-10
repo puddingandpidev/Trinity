@@ -3,6 +3,7 @@ using System.Text.Json;
 using TeamServer.Handlers.CheckinHandler.Strategies;
 using Trinity.Shared.Enums.Tasks;
 using Trinity.Shared.Interfaces;
+using Trinity.Shared.Results;
 using static Trinity.Shared.Enums.Tasks.Status;
 
 namespace TeamServer.Handlers.CheckinHandler
@@ -10,28 +11,25 @@ namespace TeamServer.Handlers.CheckinHandler
     public class CheckinResponseHandler : ICheckinResponseHandler
     {
         private readonly Dictionary<Status, Func<JsonElement, Task>> _handlers;
+        private readonly ILogger<CheckinResponseHandler> _logger;
 
-        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         /// Default constuctor.
-        /// Intialises checkin response handling strategies.
+        /// Initialises checkin response handling strategies.
+        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+
         public CheckinResponseHandler(
             SuccessStrategy successStrategy,
             RunningStrategy runningStrategy,
             ErrorStrategy errorStrategy,
-            UploadChunkStrategy uploadChunkStrategy,
-            KeyloggerStrategy keyloggerStrategy,
-            DownloadChunkStrategy downloadChunkStrategy)
+            ILogger<CheckinResponseHandler> logger
+        )
         {
+            _logger = logger;
             _handlers = new Dictionary<Status, Func<JsonElement, Task>>()
             {
                 { SUCCESS, (element) => successStrategy.ProcessResponseAsync(element) },
                 { RUNNING, (element) =>  runningStrategy.ProcessResponseAsync(element) },
-                { ERROR, (element) => errorStrategy.ProcessResponseAsync(element) },
-                { COMPLETED, (element) => keyloggerStrategy.ProcessResponseAsync(element) },
-                { MORE_TO_FOLLOW, (element) => uploadChunkStrategy.ProcessResponseAsync(element) },
-                { NO_MORE_TO_FOLLOW, (element) => uploadChunkStrategy.ProcessResponseAsync(element) },
-                { DOWNLOAD_CHUNK_STATUS, (element) => downloadChunkStrategy.ProcessResponseAsync(element) },
-                { DOWNLOAD_FINAL_STATUS, (element) => downloadChunkStrategy.ProcessResponseAsync(element) }
+                { ERROR, (element) => errorStrategy.ProcessResponseAsync(element) }
             };
         }
 
@@ -44,6 +42,7 @@ namespace TeamServer.Handlers.CheckinHandler
         /// <exception cref="ArgumentException"></exception>
         public async Task HandleResponseAsync(JsonElement element)
         {
+            _logger.LogDebug("Task result blob: {Blob}", element.GetRawText());
             var status = (Status)element.GetProperty("Status").GetInt32();
             _handlers.TryGetValue(status, out var strategy);
 

@@ -9,6 +9,12 @@ namespace Trinity.Shared.Errors
         public static Error TooManyArgs(string keyword) => new Error("Commands.TooManyArgs", $"{keyword} error: too many arguements", ErrorType.Validation);
         public static Error InvalidHost(string keyword, string host) => new Error("Commands.InvalidHost", $"{keyword} error: invalid host specified '{host}'", ErrorType.Validation);
         public static Error NotFound(string keyword) => new Error("Commands.NotFound", $"Unknown command: '{keyword}'", ErrorType.NotFound);
+
+        /// <summary>The agent has no handler for this task type/code, so the task is not queued.</summary>
+        public static Error Unsupported(Trinity.Shared.Enums.Tasks.TaskType type, Trinity.Shared.Enums.Tasks.TaskCode code) =>
+            new Error("Commands.Unsupported",
+                $"The agent does not implement {type}/{code}; the task was not queued.",
+                ErrorType.Validation);
     }
 }
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ END OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//

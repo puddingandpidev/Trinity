@@ -52,7 +52,7 @@
         <tbody>
             @if (!Filtered.Any())
             {
-                <tr class="ts-empty"><td colspan="8">@(_isLoading ? "Loading downloads…" : "Nothing collected yet.")</td></tr>
+                <tr class="ts-empty"><td colspan="9">@(_isLoading ? "Loading downloads…" : "Nothing collected yet.")</td></tr>
             }
             @foreach (var item in Filtered)
             {
@@ -77,6 +77,16 @@
                     </td>
                     <td><StatusPill Text="@item.Status" Tone="@StatusTone(item.Status)" /></td>
                     <td>@item.Collected.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>
+                        @if (item.Type == "Download" && item.CampaignId is { } campaignId)
+                        {
+                            <button type="button" class="ts-btn ts-btn--ghost" title="Delete this file from the team server"
+                                    @onclick:stopPropagation="true"
+                                    @onclick="() => DeleteDownloadAsync(campaignId, item.Name)">
+                                Delete
+                            </button>
+                        }
+                    </td>
                 </tr>
             }
         </tbody>

@@ -1,25 +1,49 @@
 using System.Net;
-using Refit;
+using System.Net.Http.Json;
 using Trinity.Shared.DTOs.Authentication;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Services;
 
-public sealed class AuthApiClient(IAuthAPI api, TeamServerConnection connection)
+// Calls the TeamServer auth endpoint and stores the issued JWT for later API calls.
+public sealed class AuthApiClient(
+    AuthorizedHttp httpClient,
+    TeamServerConnection connection,
+    AuthTokenStore tokenStore)
 {
-    public enum LoginResult { Success, InvalidCredentials }
-
-    public async Task<LoginResult> LoginAsync(string username, string password, CancellationToken ct = default)
+    public enum LoginResult
     {
-        try
+        Success,
+        InvalidCredentials,
+    }
+
+    public async Task<LoginResult> LoginAsync(string username, string password, CancellationToken cancellationToken = default)
+    {
+        if (connection.BaseAddress is null)
         {
-            var response = await api.LoginAsync(new LoginDTO { Username = username, Password = password });
-            connection.SetToken(response.Token);
-            return LoginResult.Success;
+            throw new InvalidOperationException("Connect to a TeamServer from the Login page before signing in.");
         }
-        catch (ApiException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.BadRequest)
+
+        var requestUri = new Uri(connection.BaseAddress, "api/v1/auth/login");
+        var credentials = new LoginDTO { Username = username, Password = password };
+
+        var response = await httpClient.PostAsJsonAsync(requestUri, credentials, cancellationToken);
+
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
         {
+            await tokenStore.ClearAsync();
             return LoginResult.InvalidCredentials;
         }
+
+        response.EnsureSuccessStatusCode();
+
+        var login = await response.Content.ReadFromJsonAsync<LoginResponseDTO>(cancellationToken);
+        if (login is null || string.IsNullOrEmpty(login.Token))
+        {
+            await tokenStore.ClearAsync();
+            return LoginResult.InvalidCredentials;
+        }
+
+        await tokenStore.SetAsync(login);
+        return LoginResult.Success;
     }
 }

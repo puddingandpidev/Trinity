@@ -21,14 +21,13 @@
 
     <div class="ts-admin__body">
         <aside class="ts-admin__aside">
-            <div class="ts-admin__label">ADMIN</div>
             <a class="ts-admin__link @(IsCurrent("campaigns") ? "is-active" : null)" href="campaigns">
                 <Icon Name="lucide-flag.svg" /> Campaigns <span class="ts-admin__count">@CampaignCount</span>
             </a>
             <a class="ts-admin__link @(IsCurrent("admin/operators") ? "is-active" : null)" href="admin/operators">
                 <Icon Name="lucide-users.svg" /> Operators <span class="ts-admin__count">@OperatorCount</span>
             </a>
-            <p class="ts-admin__note">Only admins can see this page. Operators reach the workspace only.</p>
+            <p class="ts-admin__note">Campaigns are visible to every operator. The Operators page is admin-only.</p>
         </aside>
 
         <main class="ts-admin__main">

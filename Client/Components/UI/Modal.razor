@@ -1,12 +1,20 @@
-<div class="ts-overlay" @onclick="OnClose">
-    <div class="ts-modal" role="dialog" aria-modal="true" aria-label="@Title" @onclick:stopPropagation="true">
+﻿@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="ts-overlay" @onclick="BackdropClick">
+    <div class="ts-modal" role="dialog" aria-modal="true" aria-labelledby="@_titleId"
+         id="@_dialogId" tabindex="-1" @ref="_dialog"
+         @onclick:stopPropagation="true" @onkeydown="HandleKeyDown">
         <div class="ts-modal__head">
             <span class="ts-modal__badge"><Icon Name="@IconName" Size="17" /></span>
             <div>
-                <div class="ts-modal__title">@Title</div>
-                <div class="ts-modal__sub">@Subtitle</div>
+                <div class="ts-modal__title" id="@_titleId">@Title</div>
+                @if (!string.IsNullOrEmpty(Subtitle))
+                {
+                    <div class="ts-modal__sub">@Subtitle</div>
+                }
             </div>
-            <button type="button" class="ts-modal__close" title="Close" @onclick="OnClose"><Icon Name="lucide-x.svg" Size="16" /></button>
+            <button type="button" class="ts-modal__close" title="Close" aria-label="Close" @onclick="Close"><Icon Name="lucide-x.svg" Size="16" /></button>
         </div>
 
         <div class="ts-modal__body">@ChildContent</div>
@@ -29,7 +37,111 @@
     [Parameter] public string IconName { get; set; } = "nav-generate.svg";
     [Parameter] public string? FootNote { get; set; }
     [Parameter] public string? Error { get; set; }
+    /// <summary>
+    /// Backdrop clicks close only the dialogs that hold no typed input. A dialog with a command,
+    /// a password or a path in it passes false so a stray click cannot throw the text away.
+    /// </summary>
+    [Parameter] public bool CloseOnBackdrop { get; set; } = true;
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public RenderFragment? Footer { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
+
+    private readonly string _dialogId = $"ts-modal-{Guid.NewGuid():N}";
+    private readonly string _titleId = $"ts-modal-title-{Guid.NewGuid():N}";
+    private ElementReference _dialog;
+    private bool _released;
+    private bool _closing;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Focus the first control in the dialog, keep Tab inside it, and remember what had focus
+        // so it can be handed back when the dialog closes.
+        await JS.InvokeVoidAsync("eval", TrapScript);
+        await JS.InvokeVoidAsync("eval", $"window.trinityModal.open('{_dialogId}')");
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+
+    private Task BackdropClick() => CloseOnBackdrop ? Close() : Task.CompletedTask;
+
+    private async Task Close()
+    {
+        if (_closing)
+        {
+            return;
+        }
+
+        _closing = true;
+        await ReleaseAsync();
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task ReleaseAsync()
+    {
+        if (_released)
+        {
+            return;
+        }
+
+        _released = true;
+        try
+        {
+            await JS.InvokeVoidAsync("eval", $"window.trinityModal && window.trinityModal.close('{_dialogId}')");
+        }
+        catch (Exception e) when (e is JSDisconnectedException or TaskCanceledException)
+        {
+            // the circuit is gone; nothing left to hand focus back to
+        }
+    }
+
+    public async ValueTask DisposeAsync() => await ReleaseAsync();
+
+    // One definition, installed by the first dialog that opens.
+    private const string TrapScript = """
+        window.trinityModal = window.trinityModal || (function () {
+            var sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+            function items(d) {
+                return Array.prototype.filter.call(d.querySelectorAll(sel), function (e) {
+                    return e.offsetWidth > 0 || e.offsetHeight > 0 || e.getClientRects().length > 0;
+                });
+            }
+            return {
+                open: function (id) {
+                    var d = document.getElementById(id);
+                    if (!d) { return; }
+                    window.__tsModalReturn = document.activeElement;
+                    var list = items(d);
+                    // Focus the first *control*, not the close button: the close button is first in
+                    // the DOM, so "first focusable" put the operator on a control that discards
+                    // their work, one Enter away. The close button stays in the Tab order.
+                    var first = null;
+                    for (var i = 0; i < list.length; i++) {
+                        if (!list[i].classList.contains('ts-modal__close')) { first = list[i]; break; }
+                    }
+                    (first || list[0] || d).focus();
+                    d.__tsTrap = function (e) {
+                        if (e.key !== 'Tab') { return; }
+                        var l = items(d);
+                        if (!l.length) { e.preventDefault(); d.focus(); return; }
+                        var i = l.indexOf(document.activeElement);
+                        if (e.shiftKey && i <= 0) { e.preventDefault(); l[l.length - 1].focus(); }
+                        else if (!e.shiftKey && i === l.length - 1) { e.preventDefault(); l[0].focus(); }
+                    };
+                    d.addEventListener('keydown', d.__tsTrap);
+                },
+                close: function (id) {
+                    var d = document.getElementById(id);
+                    if (d && d.__tsTrap) { d.removeEventListener('keydown', d.__tsTrap); d.__tsTrap = null; }
+                    var r = window.__tsModalReturn;
+                    window.__tsModalReturn = null;
+                    if (r && r.focus) { r.focus(); }
+                }
+            };
+        })();
+        """;
 }

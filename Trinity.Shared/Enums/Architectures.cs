@@ -1,10 +1,19 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using System;
+using System.Collections.Generic;
+using System.Runtime.Serialization;
+using System.Text;
+
 namespace Trinity.Shared.Enums
 {
-    public enum Arch
+    [DataContract]
+    public enum Architectures
     {
-        x32,
+        [EnumMember(Value = "x64")]
         x64,
+        [EnumMember(Value = "x32")]
+        x32,
+        [EnumMember(Value = "x86")]
         x86,
 
     }

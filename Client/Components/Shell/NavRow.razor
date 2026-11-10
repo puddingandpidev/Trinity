@@ -3,13 +3,13 @@
 @implements IDisposable
 
 <nav class="ts-nav">
-    @Item("Listeners", "nav-listeners.svg", null)
+    @Item("Listeners", "nav-listeners.svg", "settings")
     @Item("Pivot Graph", "nav-pivot.svg", null)
-    @Item("Agents", "nav-agents.svg", null)
+    @Item("Agents", "nav-agents.svg", "clients")
     <span class="ts-nav__divider"></span>
     @Item("Event Log", "nav-eventlog.svg", "logs")
     @Item("Loot", "nav-loot.svg", "loot")
-    @Item("Armoury", "nav-armoury.svg", null)
+    @Item("Armoury", "nav-armoury.svg", "armoury")
     <span class="ts-nav__divider"></span>
     <a class="ts-nav__item ts-nav__item--accent @(IsCurrent("payloads") ? "is-active" : null)" href="payloads?generate=1">
         <Icon Name="nav-generate.svg" /> Generate Payload
@@ -34,7 +34,7 @@
     {
         if (href is null)
         {
-            <span class="ts-nav__item is-disabled" title="@label is not in the new shell yet"><Icon Name="@icon" /> @label</span>
+            <span class="ts-nav__item is-disabled" title="@label has no screen yet (the API exists; the page does not)"><Icon Name="@icon" /> @label</span>
         }
         else
         {

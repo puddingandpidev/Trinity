@@ -51,7 +51,10 @@ namespace TeamServer.Tests.Controllers
                 10,
                 "TestCommand",
                 JsonDocument.Parse("{}"),
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                "SUCCESS",
+                "whoami output",
+                null);
 
             _taskServiceMock
                 .Setup(x => x.GetTaskDetailsByIDAsync(taskID))

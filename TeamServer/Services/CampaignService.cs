@@ -1,4 +1,5 @@
 //========================================================= {START OF FILE} =========================================================//
+using TeamServer.Interface;
 using TeamServer.Repositories;
 using Trinity.Shared.DTOs.Notification;
 using Trinity.Shared.Enums;
@@ -18,16 +19,13 @@ namespace TeamServer.Services
     {
         private readonly CampaignBridgeRepository _campaignBridgeRepository;
         private readonly CampaignRepository _campaignRepository;
-        private readonly INotificationDispatcher _hub;
+        private readonly INotificationHub _notificationHub;
 
-        public CampaignService(
-            CampaignBridgeRepository campaignBridgeRepository, 
-            CampaignRepository campaignRepository,
-            INotificationDispatcher notificationHub)
+        public CampaignService(CampaignBridgeRepository campaignBridgeRepository, CampaignRepository campaignRepository, INotificationHub notificationHub)
         {
             _campaignBridgeRepository = campaignBridgeRepository;
             _campaignRepository = campaignRepository;
-            _hub = notificationHub;
+            _notificationHub = notificationHub;
         }
 
         public async Task<Result<List<Campaign>>> GetCampaignsAsync()
@@ -47,6 +45,13 @@ namespace TeamServer.Services
         {
             await _campaignRepository.InsertCampaignAsync(newCampaign);
             await _campaignRepository.CommitAsync();
+
+            // Event log: a new campaign, pushed to its own group so an operator with the campaign
+            // page open sees it without polling.
+            await _notificationHub.SendEventLogAsync(
+                newCampaign.ID.ToString(),
+                new EventLog(DateTime.UtcNow, EventLogType.OPERATOR, $"Campaign '{newCampaign.Name}' created"));
+
             return Result.Success();
         }
 
@@ -72,11 +77,6 @@ namespace TeamServer.Services
             return Result.Success();
         }
 
-        public async Task<Result<List<Campaign>>> GetCampaignsByOperatorIdAsync(int operatorId)
-        {
-            return await _campaignBridgeRepository.GetCampaignsByOperatorIdAsync(operatorId);
-        }
-
         public async Task<Result<List<Operator>>> GetOperatorsByCampaignIdAsync(int campaignID)
         {
             var campaign = await _campaignRepository.GetCampaignByIdAsync(campaignID);
@@ -96,12 +96,6 @@ namespace TeamServer.Services
                 return CampaignError.NotFound(campaignID);
             }
             await _campaignBridgeRepository.CommitAsync();
-            await _hub.SendEventLogAsync(
-                campaignID.ToString(),
-                new EventLog(
-                    DateTime.UtcNow,
-                    EventLogType.OPERATOR,
-                    $"Operator, {operatorID} assigned to campaign {campaignID}"));
             return Result.Success();
         }
         public async Task<Result> RemoveOperatorFromCampaignAsync(int operatorID, int campaignID)
@@ -112,12 +106,6 @@ namespace TeamServer.Services
                 return CampaignError.NotFound(campaignID);
             }
             await _campaignBridgeRepository.CommitAsync();
-            await _hub.SendEventLogAsync(
-                campaignID.ToString(),
-                new EventLog(
-                    DateTime.UtcNow,
-                    EventLogType.OPERATOR,
-                    $"Operator, {operatorID} removed from campaign {campaignID}"));
             return Result.Success();
         }
     }

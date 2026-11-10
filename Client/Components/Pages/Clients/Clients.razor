@@ -1,5 +1,8 @@
 @page "/clients"
+@* A guessed /index is a common first URL; land it on the client list instead of a 404. *@
+@page "/index"
 @layout TrinityLayout
+@using Client.Components.UI
 
 <PageTitle>Trinity · Clients</PageTitle>
 
@@ -7,7 +10,7 @@
 
     @if (_loadError is not null || _taskLoadError is not null)
     {
-        <div class="mock-banner" role="status">
+        <div class="error-banner" role="status">
             @if (Connection.BaseAddress is null)
             {
                 <span>Connect to a TeamServer from the Login page before viewing clients.</span>
@@ -99,8 +102,11 @@
                         }
                         @foreach (var row in PageItems)
                         {
-                            <tr class="@(row == _selected ? "selected" : null)" @onclick="() => SelectRow(row)">
-                                <td>@row.Name @if (row.IsSample) { <span>(Sample)</span> }</td>
+                            <tr class="@(row == _selected ? "selected" : null)" tabindex="0" role="button"
+                                aria-pressed="@(row == _selected ? "true" : "false")"
+                                @onclick="() => SelectRow(row)"
+                                @onkeydown="e => RowKey(e, row)">
+                                <td>@row.Name</td>
                                 <td>@row.Ip</td>
                                 <td>@row.Os</td>
                                 <td>
@@ -150,35 +156,6 @@
 
         <div class="col-side">
 
-            <section class="panel-map t-card">
-                <div class="panel-head">
-                    <h2>Client Locations</h2>
-                    <select class="filter-select">
-                        <option>All Clients</option>
-                    </select>
-                </div>
-                <div class="map-box">
-                    <p>TeamServer does not provide agent location coordinates.</p>
-                    <svg class="world-map" viewBox="0 0 100 50" preserveAspectRatio="xMidYMid meet">
-                        <g class="landmass">
-                            @foreach (var d in LandDots)
-                            {
-                                <circle cx="@Fmt(d.X)" cy="@Fmt(d.Y)" r="0.7" />
-                            }
-                        </g>
-                        <g class="map-markers">
-                            @foreach (var m in MapMarkers)
-                            {
-                                <circle class="m-@m.Color" cx="@Fmt(m.X)" cy="@Fmt(m.Y)" r="1.4" />
-                            }
-                        </g>
-                    </svg>
-                    <div class="map-zoom">
-                        <button type="button" title="Zoom in (mock)">+</button>
-                        <button type="button" title="Zoom out (mock)">−</button>
-                    </div>
-                </div>
-            </section>
 
             <section class="panel-os t-card">
                 <div class="panel-head">
@@ -212,7 +189,7 @@
                 <div class="actions-grid">
                     @foreach (var a in Actions)
                     {
-                        <button type="button" class="action-btn" disabled="@(a.Label is not ("View All Clients" or "Execute Job"))" title="@(a.Label is ("View All Clients" or "Execute Job") ? null : "TeamServer does not support this action from the Clients page.")" @onclick="a.OnClick">
+                        <button type="button" class="action-btn" disabled="@(a.Label is not ("View All Clients" or "Execute Job" or "Remote Shell"))" title="@(a.Label is ("View All Clients" or "Execute Job" or "Remote Shell") ? null : "TeamServer does not support this action from the Clients page.")" @onclick="a.OnClick">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                 @((MarkupString)a.Icon)
                             </svg>
@@ -234,61 +211,63 @@
 
 @if (_showAdd)
 {
-    <div class="modal-overlay" @onclick="CloseModals">
-        <div class="modal-card" @onclick:stopPropagation="true">
-            <h3>Add New Client</h3>
-            <label class="modal-label">Client Name (auto-assigned)</label>
-            <input class="modal-input" value="@_form.Name" readonly />
-            <label class="modal-label">IP Address</label>
-            <input class="modal-input" @bind="_form.Ip" placeholder="192.168.1.20" />
-            <label class="modal-label">Operating System</label>
-            <select class="modal-input" @bind="_form.Os">
+    <Modal Title="Add New Client" Subtitle="A client appears when its agent checks in" IconName="btn-plus.svg"
+           CloseOnBackdrop="false" FootNote="Agents register themselves; this form is kept for parity."
+           OnClose="CloseModals">
+        <ChildContent>
+            <label class="modal-label" for="add-client-name">Client Name (auto-assigned)</label>
+            <input id="add-client-name" class="modal-input" value="@_form.Name" readonly />
+            <label class="modal-label" for="add-client-ip">IP Address</label>
+            <input id="add-client-ip" class="modal-input" @bind="_form.Ip" placeholder="192.168.1.20" />
+            <label class="modal-label" for="add-client-os">Operating System</label>
+            <select id="add-client-os" class="modal-input" @bind="_form.Os">
                 <option>Windows 10</option>
                 <option>Windows 11</option>
                 <option>Ubuntu 22.04</option>
                 <option>macOS 14</option>
             </select>
-            <label class="modal-label">User</label>
-            <input class="modal-input" @bind="_form.User" placeholder="Jane Doe" />
-            <div class="modal-actions">
-                <button type="button" class="btn-ghost" @onclick="CloseModals">Cancel</button>
-                <button type="button" class="btn-primary" @onclick="AddClient">Add Client</button>
-            </div>
-        </div>
-    </div>
+            <label class="modal-label" for="add-client-user">User</label>
+            <input id="add-client-user" class="modal-input" @bind="_form.User" placeholder="Jane Doe" />
+        </ChildContent>
+        <Footer>
+            <button type="button" class="btn-ghost" @onclick="CloseModals">Cancel</button>
+            <button type="button" class="btn-primary" @onclick="AddClient">Add Client</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_showAnnounce)
 {
-    <div class="modal-overlay" @onclick="CloseModals">
-        <div class="modal-card" @onclick:stopPropagation="true">
-            <h3>Send Announcement</h3>
-            <label class="modal-label">Message (broadcast to all clients)</label>
-            <textarea class="modal-input" rows="4" @bind="_announceText" placeholder="Type your announcement..."></textarea>
-            <div class="modal-actions">
-                <button type="button" class="btn-ghost" @onclick="CloseModals">Cancel</button>
-                <button type="button" class="btn-primary" @onclick="SendAnnouncement">Send</button>
-            </div>
-        </div>
-    </div>
+    <Modal Title="Send Announcement" Subtitle="Broadcast to every connected client" IconName="lucide-users.svg"
+           CloseOnBackdrop="false" FootNote="The message is stored with the task history."
+           OnClose="CloseModals">
+        <ChildContent>
+            <label class="modal-label" for="announce-text">Message (broadcast to all clients)</label>
+            <textarea id="announce-text" class="modal-input" rows="4" @bind="_announceText" placeholder="Type your announcement..."></textarea>
+        </ChildContent>
+        <Footer>
+            <button type="button" class="btn-ghost" @onclick="CloseModals">Cancel</button>
+            <button type="button" class="btn-primary" @onclick="SendAnnouncement">Send</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_showExecute)
 {
-    <div class="modal-overlay" @onclick="CloseModals">
-        <div class="modal-card" @onclick:stopPropagation="true">
-            <h3>Execute Job</h3>
-
-            <label class="modal-label">Target</label>
-            <select class="modal-input" @bind="_jobTargetId">
+    <Modal Title="Execute Job" Subtitle="Queue a command on the selected client" IconName="nav-agents.svg"
+           CloseOnBackdrop="false" FootNote="The agent runs the command on its next check-in."
+           OnClose="CloseModals">
+        <ChildContent>
+            <label class="modal-label" for="job-target">Target</label>
+            <select id="job-target" class="modal-input" @bind="_jobTargetId">
                 @foreach (var client in _clients)
                 {
                     <option value="@client.AgentId">@client.Name</option>
                 }
             </select>
 
-            <label class="modal-label">Job</label>
-            <select class="modal-input" @bind="_jobName">
+            <label class="modal-label" for="job-name">Job</label>
+            <select id="job-name" class="modal-input" @bind="_jobName">
                 @foreach (var job in _jobCatalogue)
                 {
                     <option value="@job.Name">@job.Name</option>
@@ -297,42 +276,43 @@
 
             @if (JobLabel1 is not null)
             {
-                <label class="modal-label">@JobLabel1</label>
-                <input class="modal-input" @bind="_jobArg" />
+                <label class="modal-label" for="job-arg-1">@JobLabel1</label>
+                <input id="job-arg-1" class="modal-input" @bind="_jobArg" />
             }
             @if (JobLabel2 is not null)
             {
-                <label class="modal-label">@JobLabel2</label>
-                <input class="modal-input" @bind="_jobArg2" />
+                <label class="modal-label" for="job-arg-2">@JobLabel2</label>
+                <input id="job-arg-2" class="modal-input" @bind="_jobArg2" />
             }
             @if (JobLabel3 is not null)
             {
-                <label class="modal-label">@JobLabel3</label>
-                <input class="modal-input" @bind="_jobArg3" />
+                <label class="modal-label" for="job-arg-3">@JobLabel3</label>
+                <input id="job-arg-3" class="modal-input" @bind="_jobArg3" />
             }
 
-            <label class="modal-label">Execution Options</label>
+            <span class="modal-label">Execution Options</span>
             <div class="radio-row">
-                <button type="button" class="radio-pill @(_jobImmediate ? "on" : null)" @onclick="() => _jobImmediate = true">
+                <button type="button" class="radio-pill @(_jobImmediate ? "on" : null)" aria-pressed="@_jobImmediate" @onclick="() => _jobImmediate = true">
                     <span class="radio-dot"></span> Immediate
                 </button>
-                <button type="button" class="radio-pill @(!_jobImmediate ? "on" : null)" @onclick="() => _jobImmediate = false">
+                <button type="button" class="radio-pill @(!_jobImmediate ? "on" : null)" aria-pressed="@(!_jobImmediate)" @onclick="() => _jobImmediate = false">
                     <span class="radio-dot"></span> Scheduled
                 </button>
             </div>
-
-            <div class="modal-actions">
-                <button type="button" class="btn-primary" @onclick="RunJob">Confirm</button>
-            </div>
-        </div>
-    </div>
+        </ChildContent>
+        <Footer>
+            <button type="button" class="btn-ghost" @onclick="CloseModals">Cancel</button>
+            <button type="button" class="btn-primary" @onclick="RunJob">Confirm</button>
+        </Footer>
+    </Modal>
 }
 
 @if (_showShell)
 {
-    <div class="modal-overlay" @onclick="CloseModals">
-        <div class="modal-card shell-card" @onclick:stopPropagation="true">
-            <h3>Remote Shell — @(_selected?.Name ?? "none selected")</h3>
+    <Modal Title="Remote Shell" Subtitle="@(_selected?.Name ?? "none selected")" IconName="lucide-terminal.svg"
+           CloseOnBackdrop="false" FootNote="Commands are queued on the selected client."
+           OnClose="CloseModals">
+        <ChildContent>
             <div class="shell-output">
                 @foreach (var line in _shellLog)
                 {
@@ -341,12 +321,12 @@
             </div>
             <div class="shell-input-row">
                 <span class="shell-prompt">&gt;</span>
-                <input class="modal-input" @bind="_shellInput" @onkeydown="ShellKey" placeholder="whoami" />
+                <input id="shell-command" class="modal-input" @bind="_shellInput" @onkeydown="ShellKey" placeholder="whoami" aria-label="Command" />
                 <button type="button" class="btn-primary" @onclick="RunShell">Run</button>
             </div>
-            <div class="modal-actions">
-                <button type="button" class="btn-ghost" @onclick="CloseModals">Close</button>
-            </div>
-        </div>
-    </div>
+        </ChildContent>
+        <Footer>
+            <button type="button" class="btn-ghost" @onclick="CloseModals">Close</button>
+        </Footer>
+    </Modal>
 }

@@ -1,23 +1,286 @@
 @page "/armoury"
-@namespace Client.Components.Pages
-@rendermode InteractiveServer
+@layout WorkspaceLayout
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Client.Components.Shell
+@using Client.Components.UI
+@using Client.Services
+@using Trinity.Shared.Enums
+@using Tool = Trinity.Shared.Models.Tool
+@inject AuthorizedHttp ServerHttp
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
 
-<PageTitle>Armoury — Trinity C2</PageTitle>
+<PageTitle>Trinity · Armoury</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.False" Class="pa-6">
-    <MudStack Spacing="4">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudIcon Icon="@Icons.Material.Filled.Shield" Color="Color.Primary" />
-            <MudText Typo="Typo.h5">Armoury</MudText>
+@* WorkspaceLayout carries no MudBlazor providers of its own, so these live on the page that needs
+   them: the snackbar for upload/remove feedback, the dialog host for the remove confirmation.
+   The upload dialog is ours (Components/UI/Modal), not a Mud dialog. *@
+<MudSnackbarProvider />
+<MudDialogProvider />
+
+<style>
+    .t-row-selected > td {
+        background: var(--ts-raised, #232327);
+    }
+
+    .t-row-selected > td:first-child {
+        box-shadow: inset 2px 0 0 var(--ts-orange, #f57a1e);
+    }
+
+    .t-pager {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--ts-border, #2c2c30);
+        font-size: 12px;
+        color: var(--ts-text-2, #9a9aa2);
+    }
+
+    .t-rows {
+        width: 72px;
+    }
+
+    .t-copied {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: 6px;
+        font-size: 11px;
+        color: var(--ts-green, #35c759);
+    }
+
+    .t-copy {
+        margin-left: 2px;
+    }
+
+    .t-file-box {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px;
+        border: 1px dashed var(--ts-border, #2c2c30);
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .t-file-box:hover {
+        border-color: var(--ts-orange, #f57a1e);
+    }
+</style>
+
+@if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Square="true" role="status">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <span>@_loadError</span>
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" OnClick="LoadAsync">Retry</MudButton>
         </MudStack>
-        <MudPaper Elevation="0"
-                  Class="d-flex flex-column justify-center align-center pa-10"
-                  Style="min-height:220px; border:1px solid rgba(255,255,255,0.08);">
-            <MudIcon Icon="@Icons.Material.Filled.Inventory2" Size="Size.Large" Color="Color.Secondary" Class="mb-3" />
-            <MudText Typo="Typo.body1" Color="Color.Secondary">No arsenal items available</MudText>
-            <MudText Typo="Typo.body2" Color="Color.Tertiary" Class="mt-1">
-                Build payloads using the Generate Payload section
-            </MudText>
-        </MudPaper>
-    </MudStack>
-</MudContainer>
+    </MudAlert>
+}
+
+<div style="flex:1;min-height:0;overflow:auto;">
+    <MudSimpleTable Dense="true" Hover="true" FixedHeader="true" Elevation="0" Square="true">
+        <thead>
+            <tr><th>name</th><th>type</th><th>path</th><th>size</th><th>added at</th></tr>
+        </thead>
+        <tbody>
+            @if (_tools.Count == 0)
+            {
+                <tr><td colspan="5" class="mud-text-secondary" style="text-align:center;">@(_loading ? "Loading tools…" : "The armoury is empty. Use Add to upload a tool.")</td></tr>
+            }
+            @foreach (var tool in PageOfTools)
+            {
+                <tr class="@(tool.ID == _selected?.ID ? "t-row-selected" : null)" style="cursor:pointer;" @onclick="() => _selected = tool">
+                    <td>
+                        <span class="d-inline-flex align-center gap-2">
+                            <MudIcon Icon="@TypeIcon(tool.Type)" Color="Color.Primary" Style="font-size:14px;" /> @tool.Name
+                        </span>
+                    </td>
+                    <td>@TypeLabel(tool.Type)</td>
+                    <td class="mud-text-secondary">
+                        <span class="d-inline-flex align-center gap-1">
+                            @tool.Path
+                            @if (tool.ID == _copiedId)
+                            {
+                                <span class="t-copied"><MudIcon Icon="@Icons.Material.Outlined.Check" Style="font-size:12px;" />Copied</span>
+                            }
+                            else
+                            {
+                                <span @onclick:stopPropagation="true"><MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Class="t-copy" aria-label="Copy path" OnClick="() => CopyPathAsync(tool)" /></span>
+                            }
+                        </span>
+                    </td>
+                    <td>@FormatSize(tool.Size)</td>
+                    <td>@tool.AddedDateTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+</div>
+
+@if (_tools.Count > 0)
+{
+    <div class="t-pager">
+        <span>Showing @(_page * _rowsPerPage + 1)–@(Math.Min((_page + 1) * _rowsPerPage, _tools.Count)) of @_tools.Count tools</span>
+        <MudSpacer />
+        <span>Rows per page</span>
+        @* a plain select: MudSelect needs a MudPopoverProvider, and this shell does not have one *@
+        <select class="ts-select t-rows" @bind="_rowsPerPage" @bind:after="ResetPage" aria-label="Rows per page">
+            @foreach (var size in RowOptions)
+            {
+                <option value="@size">@size</option>
+            }
+        </select>
+        <MudPagination Count="PageCount" Selected="_page + 1" SelectedChanged="p => _page = p - 1" Size="Size.Small" Variant="Variant.Outlined" Rectangular="true" />
+    </div>
+}
+
+<ActionBar>
+    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" OnClick="OpenUploadAsync">Add</MudButton>
+    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Delete" Disabled="@(_selected is null || _removing)" OnClick="RemoveAsync">Remove</MudButton>
+</ActionBar>
+
+@if (_uploadOpen)
+{
+    <UploadToolDialog OnClose="() => _uploadOpen = false" OnUploaded="OnUploadedAsync" />
+}
+
+@code {
+    private static readonly int[] RowOptions = [8, 16, 32];
+
+    private const int FetchRows = 1000;
+
+    [CascadingParameter] private WorkspaceState State { get; set; } = default!;
+
+    private List<Tool> _tools = [];
+    private Tool? _selected;
+    private int _page;
+    private int _rowsPerPage = 8;
+    private int? _copiedId;
+    private bool _loading;
+    private bool _removing;
+    private bool _uploadOpen;
+    private string? _loadError;
+
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(_tools.Count / (double)_rowsPerPage));
+    private IEnumerable<Tool> PageOfTools => _tools.Skip(_page * _rowsPerPage).Take(_rowsPerPage);
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OpenTab("Armoury", "armoury");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var tools = await ServerHttp.GetFromJsonAsync<List<Tool>>($"api/v1/armoury/tools?pagination=0&rows={FetchRows}") ?? [];
+            _tools = tools.OrderByDescending(t => t.AddedDateTime).ToList();
+            _selected = _tools.FirstOrDefault(t => t.ID == _selected?.ID) ?? _tools.FirstOrDefault();
+            _page = Math.Clamp(_page, 0, PageCount - 1);
+            _loadError = null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
+        {
+            _loadError = ServerDown.Is(ex) ? ServerDown.Message : $"Couldn't load the armoury: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ResetPage() => _page = 0;
+
+    private Task OpenUploadAsync()
+    {
+        _uploadOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private async Task OnUploadedAsync(string name)
+    {
+        _uploadOpen = false;
+        Snackbar.Add($"Uploaded {name} to the armoury.", Severity.Success);
+        _page = 0;
+        await LoadAsync();
+    }
+
+    private async Task RemoveAsync()
+    {
+        if (_selected is not { } tool)
+        {
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync("Remove tool",
+            $"Remove {tool.Name} from the armoury? The file is deleted from the team server.",
+            yesText: "Remove", cancelText: "Cancel");
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        _removing = true;
+        try
+        {
+            var http = await ServerHttp.CreateAsync();
+            var response = await http.DeleteAsync($"api/v1/armoury/remove/{tool.ID}");
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add($"The team server refused to remove {tool.Name} ({(int)response.StatusCode}).", Severity.Error);
+                return;
+            }
+
+            Snackbar.Add($"Removed {tool.Name} from the armoury.", Severity.Success);
+            _selected = null;
+            await LoadAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            Snackbar.Add(ServerDown.Is(ex) ? ServerDown.Message : $"Couldn't reach the team server: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _removing = false;
+        }
+    }
+
+    private async Task CopyPathAsync(Tool tool)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", tool.Path);
+            _copiedId = tool.ID;
+            StateHasChanged();
+            await Task.Delay(1500);
+            if (_copiedId == tool.ID)
+            {
+                _copiedId = null;
+            }
+        }
+        catch (JSException)
+        {
+            Snackbar.Add("Could not copy the path. The browser blocked clipboard access.", Severity.Warning);
+        }
+    }
+
+    private static string TypeLabel(ToolType type) => type switch
+    {
+        ToolType.NET_ASM => ".NET Assembly",
+        _ => type.ToString(),
+    };
+
+    private static string TypeIcon(ToolType type) => type switch
+    {
+        ToolType.NET_ASM => Icons.Material.Outlined.ViewInAr,
+        _ => Icons.Material.Outlined.Extension,
+    };
+
+    private static string FormatSize(double bytes) => bytes >= 1_048_576 ? $"{bytes / 1_048_576.0:0.0} MB" : $"{Math.Max(1, (int)Math.Round(bytes / 1024.0))} KB";
+}

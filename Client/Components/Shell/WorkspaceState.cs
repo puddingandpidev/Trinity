@@ -1,4 +1,3 @@
-using Client.Services;
 using Trinity.Shared.DTOs.Agent;
 
 namespace Client.Components.Shell;
@@ -8,134 +7,16 @@ public sealed class WorkspaceState
     public IReadOnlyList<AgentResponse> Agents { get; set; } = [];
     public string? AgentsError { get; set; }
     public bool Connected { get; set; }
-    public IReadOnlyList<ListenerResponse> Listeners { get; set; } = [];
+    public int ListenerCount { get; set; }
     public string Filter { get; set; } = "";
     public int? SelectedAgentId { get; set; }
     public int AgentsPanelHeight { get; set; } = 300;
 
     public List<ShellTab> Tabs { get; } = [new("Event Log", "logs")];
 
-    public int ActiveBottomTab { get; set; } = 0;
-    public bool EventLogVisible { get; set; } = true;
-    public bool PanelVisible => EventLogVisible || OpenAgentTerminals.Count > 0 || ArmouryOpen || ListenersOpen || LootOpen || PayloadsOpen;
-    public List<AgentResponse> OpenAgentTerminals { get; } = [];
-
-    public string AgentView { get; private set; } = "table";
-    public bool ArmouryOpen { get; private set; } = false;
-    public bool ListenersOpen { get; private set; } = false;
-    public bool LootOpen { get; private set; } = false;
-    public bool PayloadsOpen { get; private set; } = false;
-
-    public int ArmouryTabIndex => (EventLogVisible ? 1 : 0) + OpenAgentTerminals.Count;
-    public int ListenersTabIndex => ArmouryTabIndex + (ArmouryOpen ? 1 : 0);
-    public int LootTabIndex => ListenersTabIndex + (ListenersOpen ? 1 : 0);
-    public int PayloadsTabIndex => LootTabIndex + (LootOpen ? 1 : 0);
-
     public event Action? Changed;
-    public event Action? AgentsChanged;
 
     public void Notify() => Changed?.Invoke();
-    public void NotifyAgentsChanged() => AgentsChanged?.Invoke();
-
-    public void SetAgentView(string view) { AgentView = view; Notify(); }
-
-    public void OpenArmoury()
-    {
-        ArmouryOpen = true;
-        ActiveBottomTab = ArmouryTabIndex;
-        Notify();
-    }
-
-    public void CloseArmoury()
-    {
-        ArmouryOpen = false;
-        if (ActiveBottomTab >= ArmouryTabIndex)
-            ActiveBottomTab = 0;
-        Notify();
-    }
-
-    public void OpenListeners()
-    {
-        ListenersOpen = true;
-        ActiveBottomTab = ListenersTabIndex;
-        Notify();
-    }
-
-    public void CloseListeners()
-    {
-        ListenersOpen = false;
-        if (ActiveBottomTab >= ListenersTabIndex)
-            ActiveBottomTab = 0;
-        Notify();
-    }
-
-    public void OpenLoot()
-    {
-        LootOpen = true;
-        ActiveBottomTab = LootTabIndex;
-        Notify();
-    }
-
-    public void CloseLoot()
-    {
-        LootOpen = false;
-        if (ActiveBottomTab >= LootTabIndex)
-            ActiveBottomTab = 0;
-        Notify();
-    }
-
-    public void OpenPayloads()
-    {
-        PayloadsOpen = true;
-        ActiveBottomTab = PayloadsTabIndex;
-        Notify();
-    }
-
-    public void ClosePayloads()
-    {
-        PayloadsOpen = false;
-        if (ActiveBottomTab >= PayloadsTabIndex)
-            ActiveBottomTab = 0;
-        Notify();
-    }
-
-    public void CloseEventLog()
-    {
-        EventLogVisible = false;
-        if (ActiveBottomTab == 0 && OpenAgentTerminals.Count > 0)
-            ActiveBottomTab = 1;
-        Notify();
-    }
-
-    public void OpenEventLog()
-    {
-        EventLogVisible = true;
-        ActiveBottomTab = 0;
-        Notify();
-    }
-
-    public void OpenAgentTerminal(AgentResponse agent)
-    {
-        var existing = OpenAgentTerminals.FindIndex(t => t.agentID == agent.agentID);
-        if (existing >= 0)
-            ActiveBottomTab = existing + 1;
-        else
-        {
-            OpenAgentTerminals.Add(agent);
-            ActiveBottomTab = OpenAgentTerminals.Count - 1 + 1;
-        }
-        Notify();
-    }
-
-    public void CloseAgentTerminal(int agentId)
-    {
-        var idx = OpenAgentTerminals.FindIndex(t => t.agentID == agentId);
-        if (idx < 0) return;
-        OpenAgentTerminals.RemoveAt(idx);
-        if (ActiveBottomTab >= idx + 1)
-            ActiveBottomTab = Math.Max(0, ActiveBottomTab - 1);
-        Notify();
-    }
 
     public IEnumerable<AgentResponse> FilteredAgents
     {

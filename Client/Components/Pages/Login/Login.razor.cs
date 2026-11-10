@@ -2,7 +2,6 @@ using Client.Components.Shell;
 using Client.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
-using Trinity.Shared.Interfaces;
 
 namespace Client.Components.Pages.Login;
 
@@ -20,9 +19,6 @@ public partial class Login
     private AdminService AdminService { get; set; } = default!;
 
     [Inject]
-    private ICampaignAPI CampaignAPI { get; set; } = default!;
-
-    [Inject]
     private ProtectedSessionStorage Session { get; set; } = default!;
 
     [Inject]
@@ -34,24 +30,13 @@ public partial class Login
     private bool _showPassword;
     private bool _isSigningIn;
 
-    protected override void OnInitialized()
-    {
-        if (TeamServerConnection.Token is not null)
-            Nav.NavigateTo("/agents", replace: true);
-    }
-
     private async Task HandleLogin()
     {
         _error = null;
 
-        try
+        if (TeamServerConnection.BaseAddress is null)
         {
-            // server address comes from appsettings
-            TeamServerConnection.Configure(Config["TeamServer:BaseUrl"] ?? "");
-        }
-        catch (ArgumentException exception)
-        {
-            _error = $"TeamServer:BaseUrl in appsettings is not valid. {exception.Message}";
+            _error = "TeamServer:BaseUrl is missing or invalid in the client configuration.";
             return;
         }
 
@@ -75,11 +60,10 @@ public partial class Login
             // forget the password once its sent
             _password = "";
 
-            await TrySetCampaignIdAsync();
-
             var user = new ShellUser(_username.Trim(), await IsAdminAsync(_username.Trim()) ? "admin" : "operator");
             await Session.SetAsync(ShellUser.StorageKey, user);
-            Nav.NavigateTo("agents");
+            // The event log is the emptiest useful page; the operator wants the agents first.
+            Nav.NavigateTo(user.IsAdmin ? "campaigns" : "clients");
         }
         catch (HttpRequestException)
         {
@@ -91,23 +75,12 @@ public partial class Login
         }
     }
 
-    private async Task TrySetCampaignIdAsync()
-    {
-        try
-        {
-            var campaigns = await CampaignAPI.GetMyCampaignsAsync();
-            if (campaigns is { Count: > 0 })
-                TeamServerConnection.SetCampaignId(campaigns[0].ID);
-        }
-        catch (HttpRequestException) { }
-    }
-
     // TODO(connect to backend): login doesn't say if you're an admin, so check the admin list
     private async Task<bool> IsAdminAsync(string username)
     {
         try
         {
-            var admins = await AdminService.GetTasksAsync();
+            var admins = await AdminService.GetAllAsync();
             return admins.Any(a => a.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
         }
         catch (HttpRequestException)

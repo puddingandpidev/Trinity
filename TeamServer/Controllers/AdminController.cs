@@ -1,11 +1,15 @@
 // ===================================================== { START OF FILE } ===================================================== //
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
+using TeamServer.Services;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
 
 namespace TeamServer.Controllers
 {
     [ApiController]
+    [Authorize]
     [Route(Routes.Admins)]
     public class AdminController : ControllerBase
     {
@@ -20,6 +24,7 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <returns></returns>
         [HttpGet]
+        [ProducesResponseType(typeof(List<AdminSummary>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAdminsAsync()
         {
             var result = await _adminService.GetAdminsAsync();
@@ -27,7 +32,7 @@ namespace TeamServer.Controllers
             {
                 return BadRequest(result.Error);
             }
-            return Ok(result.Response);
+            return Ok(result.Response.Select(a => new AdminSummary(a.ID, a.Username, a.LastLogin)));
         }
         /// <summary>
         /// Retrieves a specific Admin entity by its ID from the database.
@@ -35,6 +40,7 @@ namespace TeamServer.Controllers
         /// <param name="adminID"></param>
         /// <returns></returns>
         [HttpGet("{adminID}")]
+        [ProducesResponseType(typeof(AdminSummary), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAdminByIdAsync(int adminID)
         {
             var result = await _adminService.GetAdminByIdAsync(adminID);
@@ -42,7 +48,7 @@ namespace TeamServer.Controllers
             {
                 return NotFound();
             }
-            return Ok(result.Response);
+            return Ok(new AdminSummary(result.Response!.ID, result.Response.Username, result.Response.LastLogin));
         }
         /// <summary>
         /// Creates a new Admin entity in the database.
@@ -50,6 +56,7 @@ namespace TeamServer.Controllers
         /// <param name="admin"></param>
         /// <returns></returns>
         [HttpPost]
+        [ProducesResponseType(StatusCodes.Status201Created)]
         public async Task<IActionResult> CreateAdminAsync([FromBody] Admin admin)
         {
             var result = await _adminService.CreateAdminAsync(admin);
@@ -66,6 +73,7 @@ namespace TeamServer.Controllers
         /// <param name="admin"></param>
         /// <returns></returns>
         [HttpPut("{adminID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> UpdateAdminAsync(int adminID, [FromBody] Admin admin)
         {
             admin.ID = adminID; // Ensure the ID is set correctly
@@ -82,6 +90,7 @@ namespace TeamServer.Controllers
         /// <param name="adminID"></param>
         /// <returns></returns>
         [HttpDelete("{adminID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> DeleteAdminAsync(int adminID)
         {
             var result = await _adminService.DeleteAdminAsync(adminID);

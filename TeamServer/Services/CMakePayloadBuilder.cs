@@ -1,7 +1,7 @@
 // ============================================================= { START OF FILE } =============================================================== //
 using System.Diagnostics;
 using System.Text.Json;
-using Trinity.Shared.Interfaces;
+using TeamServer.Interface;
 using Trinity.Shared.DTOs.Listener.Http;
 using Trinity.Shared.DTOs.Payload;
 using Trinity.Shared.Errors;
@@ -19,7 +19,10 @@ namespace TeamServer.Services
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly IConfiguration _configuration;
 
-        public CMakePayloadBuilder(IWebHostEnvironment webHostEnvironment, IConfiguration configuration)
+        public CMakePayloadBuilder(
+            IWebHostEnvironment webHostEnvironment,
+            IConfiguration configuration
+        )
         {
             _webHostEnvironment = webHostEnvironment;
             _configuration = configuration;
@@ -30,13 +33,24 @@ namespace TeamServer.Services
         /// </summary>
         /// <param name="payloadCreationDTO"></param>
         /// <returns></returns>
-        public async Task<Result<string>> BuildAsync(PayloadCreationDTO payloadCreationDTO, string payloadUUID, Listener listener)
+        public async Task<Result<string>> BuildAsync(
+            PayloadCreationDTO payloadCreationDTO,
+            string payloadUUID,
+            Listener listener
+        )
         {
             try
             {
-                string agentPath = Path.Combine(_webHostEnvironment.ContentRootPath, "..", "Agent");
+                string sourceName = GetSourceName(payloadCreationDTO.Architecture);
 
-                agentPath = Path.GetFullPath(agentPath);
+                if (string.IsNullOrWhiteSpace(sourceName))
+                {
+                    return PayloadError.GenerationFailed();
+                }
+
+                string agentPath = Path.GetFullPath(
+                    Path.Combine(_webHostEnvironment.ContentRootPath, "..", sourceName)
+                );
 
                 if (!Directory.Exists(agentPath))
                 {
@@ -51,40 +65,54 @@ namespace TeamServer.Services
 
                 Directory.CreateDirectory(buildRoot);
 
-                string outputPath = Path.Combine(
-                    _webHostEnvironment.ContentRootPath,
-                    "Payloads"
-                );
+                string outputPath = Path.Combine(_webHostEnvironment.ContentRootPath, "Payloads");
 
                 Directory.CreateDirectory(outputPath);
 
-                string compiler = GetCompiler(Enum.GetName(payloadCreationDTO.Architecture)!);
+                string compiler = GetCompiler(payloadCreationDTO.Architecture);
+                string toolchainName = GetToolchainName(payloadCreationDTO.Architecture);
 
-                if (string.IsNullOrWhiteSpace(compiler))
+                if (string.IsNullOrWhiteSpace(compiler) || string.IsNullOrWhiteSpace(toolchainName))
                 {
                     return PayloadError.GenerationFailed();
                 }
 
-                // Deserialize the listener configuration to retrieve necessary parameters for the build process
-                var config = JsonSerializer.Deserialize<HttpConfig>(listener.Config);
-                // Validate the deserialized configuration to ensure it is not null
-                if (config == null)
+                var httpConfig = JsonSerializer
+                    .Deserialize<HttpConfig>(listener.Config);
+
+                if (httpConfig is null || httpConfig.Hosts is null || httpConfig.Hosts.Count == 0)
                 {
                     return PayloadError.GenerationFailed();
                 }
+
+                // CMakeLists.txt consumes INPUT_HOSTS (semicolon-separated), INPUT_PAYLOAD_UUID,
+                // PORT, INPUT_USER_AGENT and INPUT_REQUEST_HEADER as cache variables.
+                string hostsJoined = string.Join(";", httpConfig.Hosts);
+
+                // Fall back to the CMakeLists.txt defaults when the listener config is empty.
+                string userAgent =
+                    string.IsNullOrWhiteSpace(httpConfig.UserAgent)
+                        ? "Trinity Agent Client/1.0"
+                        : httpConfig.UserAgent;
+                string requestHeader =
+                    string.IsNullOrWhiteSpace(httpConfig.Header)
+                        ? "Content-Type: application/json"
+                        : httpConfig.Header;
+
+                Console.WriteLine(
+                    $"payload build: source={sourceName} arch={payloadCreationDTO.Architecture} "
+                        + $"toolchain={toolchainName} build={buildRoot}"
+                );
 
                 // Configure the build environment and generate build files using CMake
                 Result configureResult = await RunProcessAsync(
                     "cmake",
-                    $"-S \"{agentPath}\" " +
-                    $"-B \"{buildRoot}\" " +
-                    "-G Ninja " +
-                    $"-DINPUT_HOSTS=\"{string.Join(";", config.Hosts)}\" " +
-                    $"-DINPUT_PAYLOAD_UUID=\"{payloadUUID}\" " +
-                    $"-DPORT={config.C2Port} " +
-                    $"-DINPUT_USER_AGENT=\"{config.UserAgent}\" " +
-                    $"-DINPUT_REQUEST_HEADER=\"{config.Header}\" " +
-                    $"-DCMAKE_CXX_COMPILER=\"{compiler}\" "
+                    $"-S \"{agentPath}\" -B \"{buildRoot}\" -G Ninja -DCMAKE_BUILD_TYPE=Release "
+                        + $"-DINPUT_HOSTS=\"{hostsJoined}\" -DINPUT_PAYLOAD_UUID=\"{payloadUUID}\" "
+                        + $"-DPORT={httpConfig.C2Port} "
+                        + $"-DINPUT_USER_AGENT=\"{userAgent}\" "
+                        + $"-DINPUT_REQUEST_HEADER=\"{requestHeader}\" "
+                        + $"-DCMAKE_TOOLCHAIN_FILE=\"{agentPath}/cmake/toolchains/{toolchainName}\""
                 );
 
                 if (!configureResult.IsSuccess)
@@ -109,7 +137,8 @@ namespace TeamServer.Services
                     return PayloadError.GenerationFailed();
                 }
 
-                string outputFileName = Path.GetFileNameWithoutExtension(payloadCreationDTO.Name) + ".exe";
+                string outputFileName =
+                    Path.GetFileNameWithoutExtension(payloadCreationDTO.Name) + ".exe";
 
                 string finalOutputPath = Path.Combine(outputPath, outputFileName);
 
@@ -117,8 +146,9 @@ namespace TeamServer.Services
 
                 return finalOutputPath;
             }
-            catch
+            catch (Exception e)
             {
+                Console.WriteLine(e);
                 return PayloadError.GenerationFailed();
             }
         }
@@ -140,6 +170,59 @@ namespace TeamServer.Services
         }
 
         /// <summary>
+        /// Resolves which agent tree a payload is built from. Defaults to <c>Agent</c> (the port);
+        /// <c>PayloadBuilder:Sources:&lt;arch&gt;</c> selects another source tree that sits beside it,
+        /// currently <c>Agent.Legacy</c> — the upstream agent at <c>89b6440</c>, which ships its own
+        /// <c>cmake/toolchains/mingw-w64-clang.cmake</c> and cross-compiles in the same image.
+        /// Only a single path segment is accepted: the value names a directory, never a path.
+        /// </summary>
+        private string GetSourceName(string architecture)
+        {
+            string? configured = architecture.ToLowerInvariant() switch
+            {
+                "x64" => _configuration["PayloadBuilder:Sources:x64"],
+                "x86" or "x32" => _configuration["PayloadBuilder:Sources:x86"],
+                _ => null,
+            };
+
+            if (string.IsNullOrWhiteSpace(configured))
+            {
+                return "Agent";
+            }
+
+            return configured.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 ? string.Empty : configured;
+        }
+
+        /// <summary>
+        /// Resolves the CMake toolchain file for a CPU architecture. The toolchain (not the
+        /// compiler name) decides the actual compiler+linker pair, so it is configurable per
+        /// architecture through <c>PayloadBuilder:Toolchains:&lt;arch&gt;</c>. Clang/LLD is the
+        /// default: it emits a real PDB for payload debugging and a structurally different PE.
+        /// Set the value to <c>mingw-w64-x86_64.cmake</c> to build with GCC + GNU ld instead.
+        /// </summary>
+        private string GetToolchainName(string architecture)
+        {
+            string? configured = architecture.ToLowerInvariant() switch
+            {
+                "x64" => _configuration["PayloadBuilder:Toolchains:x64"],
+                "x86" or "x32" => _configuration["PayloadBuilder:Toolchains:x86"],
+                _ => null,
+            };
+
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                return configured;
+            }
+
+            return architecture.ToLowerInvariant() switch
+            {
+                "x64" => "mingw-w64-clang.cmake",
+                "x86" or "x32" => "mingw-w64-i686.cmake", // TODO: Make toolchain
+                _ => string.Empty,
+            };
+        }
+
+        /// <summary>
         /// Runs a process asynchronously with the specified file name and arguments. It captures the standard output and error streams, waits for the process to exit, and returns a Result indicating success or failure based on the exit code.
         /// </summary>
         /// <param name="fileName"></param>
@@ -155,15 +238,15 @@ namespace TeamServer.Services
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
             };
 
             using (var process = new Process { StartInfo = processStartInfo })
             {
                 process.Start();
 
-                await process.StandardOutput.ReadToEndAsync();
-                await process.StandardError.ReadToEndAsync();
+                var stdout = await process.StandardOutput.ReadToEndAsync();
+                var stderr = await process.StandardError.ReadToEndAsync();
 
                 await process.WaitForExitAsync();
 
@@ -172,13 +255,26 @@ namespace TeamServer.Services
         }
 
         /// <summary>
-        /// Searches for the first executable file (.exe) in the specified build directory and its subdirectories. If found, it returns the full path to the executable; otherwise, it returns an empty string.
+        /// Resolves the built payload executable. The Agent target always produces
+        /// <c>&lt;buildDirectory&gt;/Agent.exe</c>, which is asked for by name first: a debugging build may add
+        /// helper executables (AgentSupervisor.exe, -DAGENT_SUPERVISOR=ON), and a directory scan would
+        /// otherwise be free to ship one of those as the payload.
         /// </summary>
         /// <param name="buildDirectory"></param>
         /// <returns></returns>
         private string FindExecutable(string buildDirectory)
         {
-            string[] executables = Directory.GetFiles(buildDirectory, "*.exe", SearchOption.AllDirectories);
+            string expected = Path.Combine(buildDirectory, "Agent.exe");
+            if (File.Exists(expected))
+            {
+                return expected;
+            }
+
+            string[] executables = Directory.GetFiles(
+                buildDirectory,
+                "*.exe",
+                SearchOption.AllDirectories
+            );
 
             return executables.FirstOrDefault() ?? string.Empty;
         }

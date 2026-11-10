@@ -1,31 +1,63 @@
-using Refit;
-using Trinity.Shared.Interfaces;
-
-using TrinityTask = Trinity.Shared.Models.Task;
-using AgentModel = Trinity.Shared.Models.Agent;
-using CampaignModel = Trinity.Shared.Models.Campaign;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Trinity.Shared.DTOs.Task;
 
 namespace Client.Services;
 
-public class TaskApiService(ITaskAPI taskApi, ICampaignAPI campaignApi)
+public sealed class TaskApiClient(AuthorizedHttp httpClient, TeamServerConnection connection)
 {
-    public async Task<List<TrinityTask>> GetTasksAsync()
+    public async Task<IReadOnlyList<TaskResponse>> GetTasksAsync(CancellationToken cancellationToken = default)
     {
-        try { return await taskApi.GetTasksAsync() ?? []; }
-        catch (ApiException) { return []; }
+        if (connection.BaseAddress is null)
+        {
+            throw new InvalidOperationException("Connect to a TeamServer from the Login page before viewing TeamServer data.");
+        }
+
+        var requestUri = new Uri(connection.BaseAddress, "api/v1/tasks/tasks");
+        var tasks = await httpClient.GetFromJsonAsync<List<TaskResponse>>(requestUri, cancellationToken);
+        return tasks ?? throw new JsonException("The TeamServer returned an empty task list response.");
     }
 
-    public Task<List<TrinityTask>> GetAllTasksAsync() => GetTasksAsync();
-
-    public async Task<TrinityTask?> GetByIdAsync(int id)
+    // Fetches a single task's detail (incl. command payload); returns null if no task has that ID.
+    public async Task<GetTaskDetailsResponse?> GetTaskDetailAsync(int taskId, CancellationToken cancellationToken = default)
     {
-        try { return await taskApi.GetByIdAsync(id); }
-        catch (ApiException) { return null; }
+        if (connection.BaseAddress is null)
+        {
+            throw new InvalidOperationException("Connect to a TeamServer from the Login page before viewing TeamServer data.");
+        }
+
+        var requestUri = new Uri(connection.BaseAddress, $"api/v1/tasks/tasks/{taskId}");
+        var response = await httpClient.GetAsync(requestUri, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        // An empty 200 also means no match.
+        if (response.Content.Headers.ContentLength == 0)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<GetTaskDetailsResponse>(cancellationToken);
     }
 
-    public async Task<List<CampaignModel>> GetCampaignsAsync()
+    /// <summary>
+    /// DELETE /api/v1/tasks/{id}/stop — removes a queued task. Returns true when the server
+    /// accepted it, false when the task was already gone (404).
+    /// </summary>
+    public async Task<bool> StopTaskAsync(int taskId, CancellationToken cancellationToken = default)
     {
-        try { return await campaignApi.GetCampaignsAsync() ?? []; }
-        catch (ApiException) { return []; }
+        if (connection.BaseAddress is null)
+        {
+            throw new InvalidOperationException("Connect to a TeamServer from the Login page before changing tasks.");
+        }
+
+        var requestUri = new Uri(connection.BaseAddress, $"api/v1/tasks/{taskId}/stop");
+        var response = await httpClient.DeleteAsync(requestUri, cancellationToken);
+        return response.IsSuccessStatusCode;
     }
 }

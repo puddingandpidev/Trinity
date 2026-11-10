@@ -1,10 +1,12 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Trinity.Shared.Configurations;
+using Trinity.Shared.Interfaces;
 using Trinity.Shared.DTOs.TeamServer;
 
 namespace TeamServer.Controllers
 {
+    [Authorize]
     [Route(Routes.Server)]
     [ApiController]
     public class ServerController : ControllerBase
@@ -19,7 +21,7 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <param name="logger"></param>
         /// <param name="settings"></param>
-        public ServerController(ILogger<ServerController> logger, ServerNetworkSettings settings)
+        public ServerController(ILogger<ServerController> logger, IServerNetworkSettings settings)
         {
             _logger = logger;
             _ipV4 = settings.GetIpV4Address();
@@ -32,7 +34,9 @@ namespace TeamServer.Controllers
         /// </summary>
         /// <remarks>Exposed at GET /status. Suitable for simple liveness and readiness checks.</remarks>
         /// <returns>An IActionResult that produces an HTTP 200 (OK) response.</returns>
+        [AllowAnonymous]
         [HttpGet("status")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public IActionResult GetServerStatus()
         {
             return Ok();
@@ -45,6 +49,7 @@ namespace TeamServer.Controllers
         /// <returns>An IActionResult that returns 200 OK with a TeamServerIpResponse containing the IPv4 and IPv6 address
         /// strings.</returns>
         [HttpGet("teamserverip")]
+        [ProducesResponseType(typeof(TeamServerIpResponse), StatusCodes.Status200OK)]
         public IActionResult GetServerIP()
         {
             TeamServerIpResponse response = new TeamServerIpResponse(_ipV4, _ipV6);

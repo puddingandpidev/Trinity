@@ -6,6 +6,7 @@ using Moq;
 using TeamServer.Controllers;
 using TeamServer.Interface;
 using Trinity.Shared.Errors;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
 using Trinity.Shared.Results;
 using AsyncTask = System.Threading.Tasks.Task;
@@ -60,7 +61,11 @@ namespace TeamServer.Tests.Controllers
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
 
-            Assert.Equal(expectedOperators, okResult.Value);
+            // The response is projected: the list endpoint must never carry credential material,
+            // which is structural here because OperatorSummary has no password property.
+            var summaries = Assert.IsAssignableFrom<IEnumerable<OperatorSummary>>(okResult.Value).ToList();
+            Assert.Equal(expectedOperators.Select(o => o.ID), summaries.Select(o => o.ID));
+            Assert.Equal(expectedOperators.Select(o => o.Username), summaries.Select(o => o.Username));
 
             _operatorServiceMock.Verify(
                 x => x.GetOperatorsAsync(),
@@ -83,7 +88,11 @@ namespace TeamServer.Tests.Controllers
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
 
-            Assert.Equal(expectedOperators, okResult.Value);
+            // The response is projected: the list endpoint must never carry credential material,
+            // which is structural here because OperatorSummary has no password property.
+            var summaries = Assert.IsAssignableFrom<IEnumerable<OperatorSummary>>(okResult.Value).ToList();
+            Assert.Equal(expectedOperators.Select(o => o.ID), summaries.Select(o => o.ID));
+            Assert.Equal(expectedOperators.Select(o => o.Username), summaries.Select(o => o.Username));
 
             _operatorServiceMock.Verify(
                 x => x.GetOperatorsAsync(),
@@ -139,7 +148,9 @@ namespace TeamServer.Tests.Controllers
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result);
 
-            Assert.Equal(expectedOperator, okResult.Value);
+            var summary = Assert.IsType<OperatorSummary>(okResult.Value);
+            Assert.Equal(expectedOperator.ID, summary.ID);
+            Assert.Equal(expectedOperator.Username, summary.Username);
 
             _operatorServiceMock.Verify(
                 x => x.GetOperatorByIdAsync(operatorID),

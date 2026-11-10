@@ -20,7 +20,7 @@ namespace TeamServer.Services.Factories
             return new Tool
             {
                 Type = ToolType.NET_ASM,
-                Arch = Arch.x64,
+                Arch = Architectures.x64,
                 OperatorID = request.OperatorID,
                 Name = request.Name,
                 Path = fullPath,

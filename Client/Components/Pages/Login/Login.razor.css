@@ -87,7 +87,7 @@ p {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.88px;
-    color: #6c6c74;
+    color: #8A8A92;
 }
 
 .login__field {
@@ -101,7 +101,7 @@ p {
     border-radius: 10px;
     border: 1px solid #2c2c30;
     background: #202024;
-    color: #6c6c74;
+    color: #8A8A92;
 }
 
 .login__field:focus-within {
@@ -128,7 +128,7 @@ p {
 .login__eye {
     display: grid;
     place-items: center;
-    color: #6c6c74;
+    color: #8A8A92;
 }
 
 .login__eye:hover {
@@ -167,7 +167,7 @@ p {
     gap: 6px;
     padding-top: 16px;
     font-size: 12px;
-    color: #6c6c74;
+    color: #8A8A92;
 }
 
 .login__footer {
@@ -179,5 +179,5 @@ p {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 3.3px;
-    color: #6c6c74;
+    color: #8A8A92;
 }

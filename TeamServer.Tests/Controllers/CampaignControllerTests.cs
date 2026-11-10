@@ -6,6 +6,7 @@ using Moq;
 using TeamServer.Controllers;
 using TeamServer.Interface;
 using Trinity.Shared.Enums;
+using Trinity.Shared.DTOs.Accounts;
 using Trinity.Shared.Models;
 using Trinity.Shared.Results;
 using AsyncTask = System.Threading.Tasks.Task;
@@ -362,7 +363,8 @@ namespace TeamServer.Tests.Controllers
             var result = await _controller.GetOperatorsByCampaignIdAsync(campaignID);
 
             var okResult = Assert.IsType<OkObjectResult>(result);
-            Assert.Same(operators, okResult.Value);
+            var summaries = Assert.IsAssignableFrom<IEnumerable<OperatorSummary>>(okResult.Value).ToList();
+            Assert.Equal(operators.Select(o => o.ID), summaries.Select(o => o.ID));
 
             _campaignServiceMock.Verify(
                 x => x.GetOperatorsByCampaignIdAsync(campaignID),

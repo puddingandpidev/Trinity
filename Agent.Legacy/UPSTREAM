@@ -1,0 +1,6 @@
+upstream: https://github.com/iamgred/Trinity.git
+branch:   test
+commit:   89b6440319a92e549a55cd45a6bb418360afd472
+short:    89b6440
+copied:   2026-11-09
+source:   Agent/ at that commit, verbatim (this file is the only addition)

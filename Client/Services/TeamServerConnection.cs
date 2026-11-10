@@ -2,13 +2,24 @@ namespace Client.Services;
 
 public sealed class TeamServerConnection
 {
-    public Uri?    BaseAddress { get; private set; }
-    public int?    CampaignId  { get; private set; }
-    public string? Token       { get; private set; }
+    /// <summary>
+    /// The TeamServer address, taken from <c>TeamServer:BaseUrl</c> when the value is usable.
+    /// </summary>
+    /// <remarks>
+    /// Three layouts and the login page each used to call <see cref="Configure"/> with the same
+    /// configuration value. Configuring once, where the connection lives, keeps the address in
+    /// step with the circuit without every page remembering to do it.
+    /// </remarks>
+    public TeamServerConnection(IConfiguration configuration)
+    {
+        if (configuration["TeamServer:BaseUrl"] is { Length: > 0 } address &&
+            Uri.TryCreate(address.Trim(), UriKind.Absolute, out _))
+        {
+            TryConfigure(address);
+        }
+    }
 
-    public void SetCampaignId(int id)     => CampaignId = id;
-    public void SetToken(string token)    => Token = token;
-    public void ClearToken()              => Token = null;
+    public Uri? BaseAddress { get; private set; }
 
     public void Configure(string address)
     {
@@ -25,5 +36,19 @@ public sealed class TeamServerConnection
         {
             Path = uri.AbsolutePath.TrimEnd('/') + "/"
         }.Uri;
+    }
+
+    /// <summary>Configures the address without throwing; returns false when it is not usable.</summary>
+    public bool TryConfigure(string address)
+    {
+        try
+        {
+            Configure(address);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 }

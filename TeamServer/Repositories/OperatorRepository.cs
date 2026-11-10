@@ -22,11 +22,6 @@ namespace TeamServer.Repositories
             Operator? result = await _context.Operators.FirstOrDefaultAsync(o => o.ID.Equals(operatorID));
             return result;
         }
-
-        public async Task<Operator?> GetByUsernameAsync(string username)
-        {
-            return await _context.Operators.FirstOrDefaultAsync(o => o.Username == username);
-        }
         /// <summary>
         /// Retrieves all Operators from the database.
         /// </summary>
@@ -57,6 +52,13 @@ namespace TeamServer.Repositories
             if (existingOperator == null)
             {
                 return false; // Operator not found
+            }
+
+            if (string.IsNullOrEmpty(operatorEntity.Password))
+            {
+                // An empty password means "unchanged": the API stopped returning the stored value,
+                // so an edit form that does not set one must not overwrite the credential.
+                operatorEntity.Password = existingOperator.Password;
             }
 
             _context.Entry(existingOperator).CurrentValues.SetValues(operatorEntity);

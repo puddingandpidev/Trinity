@@ -6,7 +6,6 @@ using TeamServer.Controllers;
 using TeamServer.Interface;
 using Trinity.Shared.DTOs.Payload;
 using Trinity.Shared.Errors;
-using Trinity.Shared.Enums;
 using Trinity.Shared.Results;
 using Xunit;
 
@@ -35,19 +34,20 @@ namespace TeamServer.Tests.Controllers
                 Name = "TestPayload",
                 ListenerID = 1,
                 CampaignID = 2,
-                Architecture = Arch.x64,
-                Type = PayloadType.WINDOWS_EXE,
-                RotationStrategy = RotationStrategy.ROUND_ROBIN,
+                Architecture = "x64",
+                Type = "WinExe",
+                OutputFormat = "exe",
+                RetryStrategy = "none",
                 isStageless = false
             };
 
             _payloadServiceMock
                 .Setup(x => x.GeneratePayloadAsync(request))
-                .ReturnsAsync(Result.Success());
+                .ReturnsAsync(1);
 
             var result = await _controller.GeneratePayloadAsync(request);
 
-            Assert.IsType<OkResult>(result);
+            Assert.IsType<OkObjectResult>(result);
 
             _payloadServiceMock.Verify(
                 x => x.GeneratePayloadAsync(request),
@@ -62,9 +62,10 @@ namespace TeamServer.Tests.Controllers
                 Name = "TestPayload",
                 ListenerID = 1,
                 CampaignID = 2,
-                Architecture = Arch.x64,
-                Type = PayloadType.WINDOWS_EXE,
-                RotationStrategy = RotationStrategy.ROUND_ROBIN,
+                Architecture = "x64",
+                Type = "WinExe",
+                OutputFormat = "exe",
+                RetryStrategy = "none",
                 isStageless = false
             };
 
@@ -80,7 +81,7 @@ namespace TeamServer.Tests.Controllers
 
             var badRequest = Assert.IsType<BadRequestObjectResult>(result);
 
-            var response = Assert.IsType<Result>(badRequest.Value);
+            var response = Assert.IsType<Result<int>>(badRequest.Value);
 
             Assert.False(response.IsSuccess);
             Assert.Equal(error, response.Error);

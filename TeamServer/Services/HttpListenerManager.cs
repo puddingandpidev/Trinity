@@ -1,7 +1,7 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
 using System.Collections.Concurrent;
-using TeamServer.Modules;
-
+using Trinity.Shared.Errors;
+using Trinity.Shared.Modules;
 
 namespace TeamServer.Services
 {
@@ -16,22 +16,24 @@ namespace TeamServer.Services
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        public HttpModule? GetModuleByID(int ID)
+        public HttpModule GetModuleByID(int ID)
         {
-            _httpModules.TryGetValue(ID, out var module);
+            HttpModule module;
+            var moduleExists = _httpModules.TryGetValue(ID, out module);
             return module;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        public void AddModule(int ID, HttpModule module)
+        public void AddModule (int ID, HttpModule module)
         {
             _httpModules.TryAdd(ID, module);
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        public bool RemoveModule(int ID)
+        public bool RemoveModule(int ID) 
         {
-            return _httpModules.Remove(ID, out var module);
+            HttpModule module;
+            return _httpModules.Remove(ID, out module);
         }
     }
 }

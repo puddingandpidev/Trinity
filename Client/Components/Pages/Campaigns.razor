@@ -8,10 +8,11 @@
 @using Client.Components.Pages.Dialogs
 @using Client.Services
 @using Campaign = Trinity.Shared.Models.Campaign
-@using Operator = Trinity.Shared.Models.Operator
+@using OperatorSummary = Trinity.Shared.DTOs.Accounts.OperatorSummary
 @inject CampaignService CampaignService
 @inject OperatorService OperatorService
 @inject IHttpClientFactory HttpFactory
+@inject AuthorizedHttp ServerHttp
 @inject IDialogService DialogService
 
 <PageTitle>Trinity · Campaigns</PageTitle>
@@ -124,4 +125,138 @@
             <button type="button" class="ts-btn ts-btn--primary" @onclick="RenameAsync">Rename</button>
         </Footer>
     </Modal>
+}
+
+@code {
+    [CascadingParameter] private AdminLayout Layout { get; set; } = default!;
+
+    private List<Campaign> _campaigns = [];
+    private List<OperatorSummary> _operators = [];
+    private readonly Dictionary<int, List<OperatorSummary>> _assigned = [];
+    private Campaign? _selected;
+    private string? _error;
+    private bool _loading;
+    private bool _assignOpen;
+
+    private bool _renameOpen;
+    private string _renameValue = "";
+    private string? _renameError;
+
+
+    private IEnumerable<OperatorSummary> AssignedOperators => _selected is not null && _assigned.TryGetValue(_selected.ID, out var ops) ? ops : [];
+
+    private IEnumerable<OperatorSummary> UnassignedOperators => _operators.Where(o => AssignedOperators.All(a => a.ID != o.ID));
+
+    private int OperatorCount(Campaign campaign) => _assigned.TryGetValue(campaign.ID, out var ops) ? ops.Count : 0;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _campaigns = await CampaignService.GetAllAsync();
+            _operators = await OperatorService.GetAllAsync();
+            _assigned.Clear();
+            foreach (var campaign in _campaigns)
+            {
+                _assigned[campaign.ID] = await LoadAssignedAsync(campaign.ID);
+            }
+
+            _selected = _campaigns.FirstOrDefault(c => c.ID == _selected?.ID) ?? _campaigns.FirstOrDefault();
+            _error = null;
+            Layout.SetCounts(campaigns: _campaigns.Count, operators: _operators.Count);
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException or TaskCanceledException)
+        {
+            _error = ServerDown.Is(e) ? ServerDown.Message : $"Could not load campaigns: {e.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<List<OperatorSummary>> LoadAssignedAsync(int campaignId) =>
+        await ServerHttp.GetFromJsonAsync<List<OperatorSummary>>($"/api/v1/campaigns/{campaignId}/operators") ?? [];
+
+    private Task SelectAsync(Campaign campaign)
+    {
+        _selected = campaign;
+        _assignOpen = false;
+        return Task.CompletedTask;
+    }
+
+    // opens the teammate's New Campaign popup (screen 10)
+    private async Task NewCampaignAsync()
+    {
+        var dialog = await DialogService.ShowAsync<CreateNewCampaignDialog>(string.Empty, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        await dialog.Result;
+        await LoadAsync();
+    }
+
+    private async Task AssignAsync(OperatorSummary op) => await ChangeAssignmentAsync(op, assign: true);
+
+    private async Task UnassignAsync(OperatorSummary op) => await ChangeAssignmentAsync(op, assign: false);
+
+    private async Task ChangeAssignmentAsync(OperatorSummary op, bool assign)
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        var url = $"/api/v1/campaigns/{_selected.ID}/operators/{op.ID}";
+        try
+        {
+            var response = assign ? await ServerHttp.PostAsync(url, null) : await ServerHttp.DeleteAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"The team server refused the change ({(int)response.StatusCode}).";
+                return;
+            }
+
+            _assigned[_selected.ID] = await LoadAssignedAsync(_selected.ID);
+            _assignOpen = false;
+            _error = null;
+        }
+        catch (HttpRequestException e)
+        {
+            _error = ServerDown.Is(e) ? ServerDown.Message : $"Could not reach the team server: {e.Message}";
+        }
+    }
+
+    private void OpenRename()
+    {
+        _renameValue = _selected?.Name ?? "";
+        _renameError = null;
+        _renameOpen = true;
+    }
+
+    private async Task RenameAsync()
+    {
+        if (_selected is null || string.IsNullOrWhiteSpace(_renameValue))
+        {
+            _renameError = "Enter a name.";
+            return;
+        }
+
+        try
+        {
+            var response = await ServerHttp.PutAsJsonAsync($"/api/v1/campaigns/{_selected.ID}", new Campaign { ID = _selected.ID, Name = _renameValue.Trim() });
+            if (!response.IsSuccessStatusCode)
+            {
+                _renameError = $"The team server refused the rename ({(int)response.StatusCode}).";
+                return;
+            }
+
+            _renameOpen = false;
+            await LoadAsync();
+        }
+        catch (HttpRequestException e)
+        {
+            _renameError = ServerDown.Is(e) ? ServerDown.Message : $"Could not reach the team server: {e.Message}";
+        }
+    }
 }

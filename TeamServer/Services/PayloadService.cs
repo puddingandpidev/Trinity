@@ -1,11 +1,12 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using Microsoft.AspNetCore.Mvc;
+using System.Text;
+using TeamServer.Interface;
 using TeamServer.Repositories;
 using TeamServer.Utils;
-using Trinity.Shared.DTOs.Notification;
 using Trinity.Shared.DTOs.Payload;
 using Trinity.Shared.Enums;
 using Trinity.Shared.Errors;
-using Trinity.Shared.Interfaces;
 using Trinity.Shared.Models;
 using Trinity.Shared.Results;
 
@@ -14,24 +15,17 @@ namespace TeamServer.Services
     public class PayloadService : IPayloadService
     {
         private readonly PayloadRepository _payloadRepository;
-        private readonly ListenerRespository _listenerRepository;
+        private readonly ListenerRepository _listenerRepository;
         private readonly IPayloadBuilder _payloadBuilder;
         private readonly IWebHostEnvironment _webHostEnvironment;
-        private readonly INotificationDispatcher _hub;
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        public PayloadService(
-            PayloadRepository payloadRepository,
-            ListenerRespository listenerRepository,
-            IPayloadBuilder payloadBuilder,
-            IWebHostEnvironment webHostEnvironment,
-            INotificationDispatcher notificationHub)
+        public PayloadService(PayloadRepository payloadRepository, ListenerRepository listenerRepository, IPayloadBuilder payloadBuilder, IWebHostEnvironment webHostEnvironment)
         {
-            _payloadRepository = payloadRepository;
-            _listenerRepository = listenerRepository;
-            _payloadBuilder = payloadBuilder;
-            _webHostEnvironment = webHostEnvironment;
-            _hub = notificationHub;
+            this._payloadRepository = payloadRepository;
+            this._listenerRepository = listenerRepository;
+            this._payloadBuilder = payloadBuilder;
+            this._webHostEnvironment = webHostEnvironment;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
@@ -40,7 +34,7 @@ namespace TeamServer.Services
         /// </summary>
         /// <param name="payloadCreationDTO"></param>
         /// <returns>A Result indicating the success or failure of the operation.</returns>
-        public async Task<Result> GeneratePayloadAsync(PayloadCreationDTO payloadCreationDTO)
+        public async Task<Result<int>> GeneratePayloadAsync(PayloadCreationDTO payloadCreationDTO)
         {
             var listener = await _listenerRepository.GetListenerAsync(payloadCreationDTO.ListenerID);
 
@@ -51,19 +45,11 @@ namespace TeamServer.Services
 
             var payloadUUID = Guid.NewGuid().ToString();
 
-            // Call the payload builder to build the payload
-            //var buildResult = await _payloadBuilder.BuildAsync(payloadCreationDTO, payloadUUID, listener);
+            var buildResult = await _payloadBuilder.BuildAsync(payloadCreationDTO, payloadUUID, listener);
 
-            // If the build failed, return an error
-            if (false)
+            if (!buildResult.IsSuccess)
             {
-                await _hub.SendEventLogAsync(
-                payloadCreationDTO.CampaignID.ToString(),
-                new EventLog(
-                    DateTime.UtcNow,
-                    EventLogType.PAYLOAD,
-                    $"Payload, {payloadCreationDTO.Name}, generated failed for campaign: {payloadCreationDTO.CampaignID}."));
-                return PayloadError.GenerationFailed();
+               return PayloadError.GenerationFailed();
             }
 
             var payload = new Payload
@@ -71,13 +57,12 @@ namespace TeamServer.Services
                 PayloadUUID = payloadUUID,
                 ListenerID = payloadCreationDTO.ListenerID,
                 CampaignID = payloadCreationDTO.CampaignID,
-                CreatedByOperatorID = payloadCreationDTO.OperatorID,
+                // TODO: Replace with autheticated operator ID
+                CreatedByOperatorID = 1,
                 FileName = payloadCreationDTO.Name,
-                Arch = payloadCreationDTO.Architecture,
-                RotationStrategy = payloadCreationDTO.RotationStrategy,
-                Sleep = payloadCreationDTO.Sleep,
-                Jitter = payloadCreationDTO.Jitter,
-                Type = payloadCreationDTO.Type,
+                Architecture = Util.GetEnumString<Architectures>(payloadCreationDTO.Architecture),
+                RetryStrategy = payloadCreationDTO.RetryStrategy,
+                PayloadType = Util.GetEnumString<PayloadTypes>(payloadCreationDTO.Type),
                 AES256KEY = Util.GenerateAES256Key(),
                 CreatedAt = DateTime.UtcNow
             };
@@ -85,14 +70,7 @@ namespace TeamServer.Services
             await _payloadRepository.InsertPayloadAsync(payload);
             await _payloadRepository.CommitAsync();
 
-            await _hub.SendEventLogAsync(
-                payloadCreationDTO.CampaignID.ToString(),
-                new EventLog(
-                    DateTime.UtcNow,
-                    EventLogType.PAYLOAD,
-                    $"Payload, {payloadCreationDTO.Name}, generated successfully for campaign: {payloadCreationDTO.CampaignID}."));
-
-            return Result.Success();
+            return payload.ID;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
@@ -113,9 +91,9 @@ namespace TeamServer.Services
                     return new PayloadDTO
                     {
                         ID = p.ID,
-                        Name = AppendFileExtension(p.FileName, p.Type),
+                        Name = AppendFileExtension(p.FileName, p.PayloadType),
                         Size = size,
-                        Type = Enum.GetName(p.Type)!,
+                        Type = Util.GetEnumValue<PayloadTypes>(p.PayloadType),
                         CreateTime = p.CreatedAt
                     };
                 }).ToList();
@@ -152,7 +130,7 @@ namespace TeamServer.Services
         /// <returns>The full file path of the payload.</returns>
         private string GetPayloadFilePath(Payload payload)
         {
-            string fileName = AppendFileExtension(payload.FileName, payload.Type);
+            string fileName = AppendFileExtension(payload.FileName, payload.PayloadType);
             return Path.Combine(_webHostEnvironment.ContentRootPath, "Payloads", fileName);
         }
         /// <summary>
@@ -161,30 +139,25 @@ namespace TeamServer.Services
         /// <param name="fileName"></param>
         /// <param name="type"></param>
         /// <returns>The file name with the appropriate extension.</returns>
-        private string AppendFileExtension(string fileName, PayloadType type)
+        private string AppendFileExtension(string fileName, PayloadTypes type)
         {
-            string name = type switch
+            string name;
+            switch (type)
             {
-                PayloadType.WINDOWS_EXE => fileName + ".exe",
-                PayloadType.WINDOWS_DLL => fileName + ".dll",
-                PayloadType.WINDOWS_SERVICE => fileName + ".svc",
-                PayloadType.POWERSHELL => name = fileName + ".ps1",
-                PayloadType.RAW => name = fileName + ".o",
-                _ => throw new ArgumentException("Payload type is not defined!")
-            };
+                case PayloadTypes.WinExe:
+                    name = fileName + ".exe";
+                    break;
+                case PayloadTypes.Powershell:
+                    name = fileName + ".ps1";
+                    break;
+                default:
+                    name = fileName + ".dll";
+                    break;
+            }
+
             return name;
         }
 
-        public async Task<Result> DeletePayloadAsync(int payloadID)
-        {
-            var payload = await _payloadRepository.GetByIdAsync(payloadID);
-            if (payload == null)
-                return PayloadError.NotFound(payloadID);
-
-            _payloadRepository.Delete(payload);
-            await _payloadRepository.CommitAsync();
-            return Result.Success();
-        }
     }
 }
 //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ END OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//

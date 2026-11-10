@@ -4,6 +4,9 @@
 @inject ProtectedSessionStorage Session
 @inject TeamServerConnection Connection
 @inject NavigationManager Nav
+@using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
+@inject AuthTokenStore TokenStore
 
 <header class="ts-topbar">
     <div class="ts-topbar__brand">
@@ -11,7 +14,7 @@
         <span class="ts-topbar__word">TRINITY</span>
     </div>
 
-    @if (Admin)
+    @if (Admin && _user?.IsAdmin == true)
     {
         <span class="ts-topbar__badge">ADMIN CONSOLE</span>
     }
@@ -36,12 +39,12 @@
             @if (_user.IsAdmin && !Admin)
             {
                 <a class="ts-topbar__user" href="campaigns" title="Open the admin console">
-                    <Icon Name="topbar-user.svg" Size="14" /><b>@_user.Name</b><span>@_user.Role</span>
+                    <Icon Name="topbar-user.svg" Size="14" /><b>@_user.Name</b><span>@(_user.IsAdmin ? "Admin" : "Operator")</span>
                 </a>
             }
             else
             {
-                <span class="ts-topbar__user"><Icon Name="topbar-user.svg" Size="14" /><b>@_user.Name</b><span>@_user.Role</span></span>
+                <span class="ts-topbar__user"><Icon Name="topbar-user.svg" Size="14" /><b>@_user.Name</b><span>@(_user.IsAdmin ? "Admin" : "Operator")</span></span>
             }
         }
 
@@ -56,23 +59,35 @@
 
     private ShellUser? _user;
 
-    private string ServerLabel => Connection.BaseAddress is { } uri ? $"teamserver {uri.Host}:{uri.Port}" : "teamserver not set";
+    private string ServerLabel => Connection.BaseAddress is { } uri ? $"{uri.Host}:{uri.Port}" : "not connected";
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override void OnInitialized() => Nav.LocationChanged += OnLocationChanged;
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = GuardAsync();
+
+    protected override Task OnAfterRenderAsync(bool firstRender) => firstRender ? GuardAsync() : Task.CompletedTask;
+
+    /// <summary>
+    /// Loads the signed-in operator and applies the route guard.
+    /// </summary>
+    /// <remarks>
+    /// This used to run only on the first render, so a client-side navigation into an admin route
+    /// was never re-checked: an operator could press the sidebar's "Operators" link and be served
+    /// the roster with Edit / Reset Password / Remove in front of them. The subscription above
+    /// re-runs it for every navigation; the API is still the place that must refuse (see the role
+    /// model in REPORT §6.1), but the page should not paint what it will not allow.
+    /// </remarks>
+    private async Task GuardAsync()
     {
-        if (!firstRender)
-        {
-            return;
-        }
-
         try
         {
             var stored = await Session.GetAsync<ShellUser>(ShellUser.StorageKey);
-            _user = stored.Success ? stored.Value : null;
+            _user = stored is { Success: true, Value: { } user } ? user : null;
         }
         catch (Exception)
         {
-            // cant read sign-in so treat it as signed out
             _user = null;
         }
 
@@ -82,9 +97,12 @@
             return;
         }
 
-        if (Admin && !_user.IsAdmin)
+        // Operators may open campaign pages (they are assigned to campaigns); only the
+        // /admin/* console is admin-only.
+        if (Admin && !_user.IsAdmin &&
+            Nav.ToBaseRelativePath(Nav.Uri).StartsWith("admin", StringComparison.OrdinalIgnoreCase))
         {
-            Nav.NavigateTo("logs");
+            Nav.NavigateTo("campaigns");
             return;
         }
 
@@ -95,6 +113,7 @@
     private async Task SignOutAsync()
     {
         await Session.DeleteAsync(ShellUser.StorageKey);
+        await TokenStore.ClearAsync();
         Nav.NavigateTo("login");
     }
 }

@@ -1,28 +1,34 @@
 ﻿//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^{ BEGINNING OF FILE }^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Trinity.Shared.Models;
+using TeamServer.Services;
 using Trinity.Shared.DTOs.Tool;
-using Trinity.Shared.Interfaces;
 
 namespace TeamServer.Controllers
 {
+    // Operator-facing, so it carries the same bearer requirement as the other
+    // operator controllers (KAN-42). The agent never calls this route.
+    [Authorize]
     [Route(Routes.Armoury)]
     [ApiController]
     public class ArmouryController : ControllerBase
     {
-        private readonly IToolService _toolService;
+        private readonly ToolService _toolService;
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         /// <summary>
         /// Default constructor.
         /// </summary>
         /// <param name="toolService"></param>
-        public ArmouryController(IToolService toolService)
+        public ArmouryController(ToolService toolService)
         {
             _toolService = toolService;
         }
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpGet("tools")]
+        [ProducesResponseType(typeof(List<Tool>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetToolsAsync([FromQuery] int pagination, [FromQuery] int rows)
         {
             var result = await _toolService.GetToolsAsync(pagination, rows);
@@ -31,6 +37,7 @@ namespace TeamServer.Controllers
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpPost("upload")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
         public async Task<IActionResult> UploadToolAsync([FromForm] ToolCreationRequest request)
         {
             var result = await _toolService.UploadAsync(request);
@@ -39,6 +46,7 @@ namespace TeamServer.Controllers
 
         //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpDelete("remove/{toolID}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<IActionResult> RemoveToolAsync([FromRoute] int toolID)
         {
             var result = await _toolService.RemoveToolAsync(toolID);

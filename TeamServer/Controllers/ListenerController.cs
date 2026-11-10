@@ -1,14 +1,17 @@
 ﻿//  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ { START OF FILE } ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ //    
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using TeamServer.Interface;
+using TeamServer.Services;
 using Trinity.Shared.DTOs.Listener.Http;
-using Trinity.Shared.DTOs.Listener.Https;
 using Trinity.Shared.DTOs.Listener.Smb;
 using Trinity.Shared.DTOs.Listener.Tcp;
-using Trinity.Shared.Interfaces;
+using Trinity.Shared.DTOs.Listener;
 
 
 namespace TeamServer.Controllers
 {
+    [Authorize]
     [Route(Routes.Listeners)]
     [ApiController]
     public class ListenerController : ControllerBase
@@ -33,13 +36,13 @@ namespace TeamServer.Controllers
         /// <remarks>Retrieves listeners asynchronously from the configured listener service.</remarks>
         /// <returns>An IActionResult that produces an HTTP 200 (OK) response containing the collection of listeners.</returns>
         [HttpGet]
+        [ProducesResponseType(typeof(List<ListenerResponse>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetHttpListeners()
         {
             var result = await _listenerService.GetListenersAsync();
             return Ok(result.Response);
         }
 
-        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
         [HttpPost("http/restart/{ID}")]
         public async Task<IActionResult> RestartListenerAsync([FromRoute] int ID)
         {
@@ -59,14 +62,6 @@ namespace TeamServer.Controllers
         public async Task<IActionResult> StartHttpListener([FromBody] CreateHttpListenerRequest request)
         {
             var result = await _listenerService.CreateHttpListenerAsync(request);
-            return result.IsSuccess ? Created() : BadRequest(result.Error);
-        }
-
-        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        [HttpPost("https")]
-        public async Task<IActionResult> CreateHttpsListener([FromBody] CreateHttpsListenerRequest request)
-        {
-            var result = await _listenerService.CreateHttpsListenerAsync(request);
             return result.IsSuccess ? Created() : BadRequest(result.Error);
         }
 
@@ -108,6 +103,7 @@ namespace TeamServer.Controllers
         /// <param name="ID">The listener identifier.</param>
         /// <returns>An IActionResult returning 200 (OK) with the listener when found; otherwise 404 (Not Found) with an error.</returns>
         [HttpGet("http/{ID}")]
+        [ProducesResponseType(typeof(GetListenerDetailsResponse), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetListenerByIDAsync([FromRoute] int ID)
         {
             var result = await _listenerService.GetListener(ID);
@@ -127,14 +123,6 @@ namespace TeamServer.Controllers
         public async Task<IActionResult> UpdateHttpListenerAsync([FromRoute] int ID, [FromBody] UpdateHttpListenerRequest request)
         {
             var result = await _listenerService.UpdateHttpListenerAsync(ID, request.config);
-            return result.IsSuccess ? Ok() : BadRequest(result.Error);
-        }
-
-        //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^//
-        [HttpPut("https/{ID}")]
-        public async Task<IActionResult> UpdateHttpsListenerAsync([FromRoute] int ID, [FromBody] UpdateHttpsListenerRequest request)
-        {
-            var result = await _listenerService.UpdateHttpsListenerAsync(ID, request.Config);
             return result.IsSuccess ? Ok() : BadRequest(result.Error);
         }
 

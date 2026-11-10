@@ -1,16 +1,12 @@
-@namespace Client.Components.Pages.Dialogs
 @using System.Net.Http.Json
 @using System.Text.Json
 @using Client.Components.UI
 @using Client.Services
 @using Trinity.Shared.DTOs.Payload
-@using Trinity.Shared.Enums
 @using Campaign = Trinity.Shared.Models.Campaign
-@using Trinity.Shared.Interfaces
 @inject ListenerApiClient ListenerApi
 @inject CampaignService CampaignService
-@inject IPayloadAPI PayloadApi
-@inject EventLogService EventLog
+@inject PayloadService PayloadService
 
 <Modal Title="Generate Payload" Subtitle="Build an agent that calls back to a listener" IconName="nav-generate.svg"
        FootNote="Built on the team server and added to Payloads." Error="@_error" OnClose="OnClose">
@@ -46,6 +42,11 @@
         </div>
 
         <div class="ts-modal__row">
+            <label>Payload Type</label>
+            <SegmentedToggle Options="PayloadTypes" @bind-Value="_type" />
+        </div>
+
+        <div class="ts-modal__row">
             <label for="gp-campaign">Campaign</label>
             <div class="ts-field">
                 <Icon Name="lucide-flag.svg" Size="13" Class="gp-flag" />
@@ -62,35 +63,6 @@
                 <Icon Name="select-chevron.svg" Size="14" />
             </div>
         </div>
-
-        <div class="ts-modal__row">
-            <label for="gp-sleep">Sleep (s)</label>
-            <div class="ts-field"><input id="gp-sleep" type="number" min="1" @bind="_sleep" /></div>
-        </div>
-
-        <div class="ts-modal__row">
-            <label for="gp-jitter">Jitter (%)</label>
-            <div class="ts-field"><input id="gp-jitter" type="number" min="0" max="100" @bind="_jitter" /></div>
-        </div>
-
-        <div class="ts-modal__row">
-            <label for="gp-rotation">Rotation</label>
-            <div class="ts-field">
-                <select id="gp-rotation" @bind="_rotationStrategy">
-                    <option value="@RotationStrategy.ROUND_ROBIN">Round Robin</option>
-                    <option value="@RotationStrategy.RANDOM">Random</option>
-                </select>
-                <Icon Name="select-chevron.svg" Size="14" />
-            </div>
-        </div>
-
-        <div class="ts-modal__row">
-            <label>Stageless</label>
-            <div>
-                <span class="gp-arch"><Icon Name="lucide-lock.svg" Size="12" /> Yes</span>
-                <p class="ts-modal__hint">Trinity payloads are always stageless.</p>
-            </div>
-        </div>
     </ChildContent>
     <Footer>
         <button type="button" class="ts-btn" @onclick="OnClose">Cancel</button>
@@ -102,14 +74,15 @@
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public EventCallback OnGenerated { get; set; }
 
+    
+    private static readonly IReadOnlyList<string> PayloadTypes = ["winexe", "dll"];
+
     private IReadOnlyList<ListenerResponse> _listeners = [];
     private List<Campaign> _campaigns = [];
     private string _name = "agent_x64";
     private int _listenerId;
     private int _campaignId;
-    private int _sleep = 60;
-    private int _jitter = 0;
-    private RotationStrategy _rotationStrategy = RotationStrategy.ROUND_ROBIN;
+    private string _type = "winexe";
     private string? _error;
     private bool _busy;
 
@@ -118,7 +91,7 @@
         try
         {
             _listeners = await ListenerApi.GetListenersAsync();
-            _campaigns = await CampaignService.GetTasksAsync();
+            _campaigns = await CampaignService.GetAllAsync();
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException or JsonException)
         {
@@ -143,25 +116,21 @@
             Name = _name.Trim(),
             ListenerID = _listenerId,
             CampaignID = _campaignId,
-            Architecture = Arch.x64,
-            Type = PayloadType.WINDOWS_EXE,
-            Sleep = _sleep,
-            Jitter = _jitter,
-            RotationStrategy = _rotationStrategy,
-            isStageless = true,
+            Architecture = "x64",
+            Type = _type,
+            OutputFormat = _type,
         };
 
         _busy = true;
         try
         {
-            await PayloadApi.GenerateAsync(request);
-            EventLog.Add("SUCCESS", $"Payload '{_name.Trim()}' generated.");
+            if (!await PayloadService.CreateAsync(request))
+            {
+                _error = "The team server refused the build.";
+                return;
+            }
+
             await OnGenerated.InvokeAsync();
-        }
-        catch (Refit.ApiException e)
-        {
-            var detail = string.IsNullOrWhiteSpace(e.Content) ? string.Empty : $" — {e.Content}";
-            _error = $"The team server refused the build ({(int)e.StatusCode}){detail}";
         }
         catch (HttpRequestException e)
         {
